@@ -1,0 +1,55 @@
+/* VS Code 主题变量 */
+:root {
+  --vscode-font-family: var(--vscode-editor-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
+  --vscode-font-size: var(--vscode-editor-font-size, 13px);
+  --vscode-foreground: var(--vscode-editor-foreground, #cccccc);
+  --vscode-background: var(--vscode-editor-background, #1e1e1e);
+  --vscode-panel-background: var(--vscode-panel-background, #1e1e1e);
+  --vscode-panel-border: var(--vscode-panel-border, #3c3c3c);
+  --vscode-list-hoverBackground: var(--vscode-list-hoverBackground, #2a2d2e);
+  --vscode-list-activeSelectionBackground: var(--vscode-list-activeSelectionBackground, #094771);
+  --vscode-button-background: var(--vscode-button-background, #0e639c);
+  --vscode-button-hoverBackground: var(--vscode-button-hoverBackground, #1177bb);
+  --vscode-button-foreground: var(--vscode-button-foreground, #ffffff);
+  --vscode-statusBar-background: var(--vscode-statusBar-background, #007acc);
+  --vscode-statusBar-foreground: var(--vscode-statusBar-foreground, #ffffff);
+  --vscode-focusBorder: var(--vscode-focusBorder, #007fd4);
+  --vscode-descriptionForeground: var(--vscode-descriptionForeground, #cccccc);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  color: var(--vscode-foreground);
+  background: var(--vscode-background);
+  overflow: hidden;
+}
+
+/* Codicons */
+.codicon {
+  font-family: 'codicon';
+  font-size: 16px;
+  line-height: 1;
+  speak: none;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.codicon-folder::before { content: '📁'; }
+.codicon-file::before { content: '📄'; }
+.codicon-file-code::before { content: '📝'; }
+.codicon-file-text::before { content: '📃'; }
+.codicon-file-media::before { content: '🖼️'; }
+.codicon-chevron-right::before { content: '▶'; }
+.codicon-chevron-down::before { content: '▼'; }
+.codicon-add::before { content: '+'; }
+.codicon-save::before { content: '💾'; }
+.codicon-trash::before { content: '🗑️'; }
+.codicon-package::before { content: '📦'; }
+.codicon-inbox::before { content: '📥'; }

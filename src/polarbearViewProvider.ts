@@ -44,6 +44,16 @@ export class PolarBearViewProvider implements vscode.TreeDataProvider<PolarBearI
                     'play'
                 ),
                 new PolarBearItem(
+                    '增加发布流程',
+                    vscode.TreeItemCollapsibleState.None,
+                    {
+                        command: 'polarbear.openPublishFlow',
+                        title: 'Open Publish Flow',
+                        arguments: []
+                    },
+                    'add'
+                ),
+                new PolarBearItem(
                     '测试登录',
                     vscode.TreeItemCollapsibleState.None,
                     {
