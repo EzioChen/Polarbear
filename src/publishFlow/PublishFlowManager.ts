@@ -97,6 +97,93 @@ export class PublishFlowManager {
   }
 
   /**
+   * 从文件节点树添加文件夹（保持层级结构）
+   */
+  addFolderFromNode(node: FileNode, parentPath?: string): void {
+    // 重新生成 ID，更新路径
+    const newPath = parentPath ? path.join(parentPath, node.name) : node.name;
+
+    const newNode: FileNode = {
+      id: uuidv4(),
+      type: 'folder',
+      name: node.name,
+      path: newPath,
+      sourcePath: node.sourcePath,
+      children: []
+    };
+
+    // 递归复制子节点
+    if (node.children && node.children.length > 0) {
+      for (const child of node.children) {
+        if (child.type === 'folder') {
+          this.copyNodeRecursive(child, newNode);
+        } else {
+          // 文件节点
+          const newChild: FileNode = {
+            id: uuidv4(),
+            type: 'file',
+            name: child.name,
+            path: path.join(newPath, child.name),
+            sourcePath: child.sourcePath,
+            size: child.size,
+            lastModified: child.lastModified
+          };
+          newNode.children!.push(newChild);
+        }
+      }
+    }
+
+    // 添加到目标位置
+    if (parentPath) {
+      const parent = this.findNodeByPath(parentPath);
+      if (parent && parent.children) {
+        parent.children.push(newNode);
+      }
+    } else {
+      this.config.files.push(newNode);
+    }
+
+    this.updateMetadata();
+  }
+
+  /**
+   * 递归复制节点树
+   */
+  private copyNodeRecursive(node: FileNode, parent: FileNode): void {
+    const newPath = path.join(parent.path, node.name);
+
+    const newNode: FileNode = {
+      id: uuidv4(),
+      type: 'folder',
+      name: node.name,
+      path: newPath,
+      sourcePath: node.sourcePath,
+      children: []
+    };
+
+    if (node.children && node.children.length > 0) {
+      for (const child of node.children) {
+        if (child.type === 'folder') {
+          this.copyNodeRecursive(child, newNode);
+        } else {
+          const newChild: FileNode = {
+            id: uuidv4(),
+            type: 'file',
+            name: child.name,
+            path: path.join(newPath, child.name),
+            sourcePath: child.sourcePath,
+            size: child.size,
+            lastModified: child.lastModified
+          };
+          newNode.children!.push(newChild);
+        }
+      }
+    }
+
+    parent.children!.push(newNode);
+  }
+
+  /**
    * 根据路径查找节点
    */
   findNodeByPath(targetPath: string, nodes?: FileNode[]): FileNode | undefined {

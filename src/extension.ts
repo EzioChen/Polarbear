@@ -81,6 +81,8 @@ export function activate(context: vscode.ExtensionContext) {
         {
           enableScripts: true,
           retainContextWhenHidden: true,
+          enableCommandUris: true,
+          enableFindWidget: true,
           localResourceRoots: [
             vscode.Uri.file(context.extensionPath)
           ]
@@ -188,40 +190,26 @@ export function activate(context: vscode.ExtensionContext) {
                 const itemStats = fs.statSync(message.payload.sourcePath);
 
                 if (itemStats.isDirectory()) {
-                  await addFolderRecursiveToTarget(
-                    message.payload.sourcePath,
-                    publishFlowManager!,
-                    message.payload.targetPath
-                  );
+                  // 如果有完整的节点数据，使用 addFolderFromNode 保持层级结构
+                  if (message.payload.nodeData && message.payload.nodeData.children) {
+                    publishFlowManager?.addFolderFromNode(
+                      message.payload.nodeData,
+                      message.payload.targetPath
+                    );
+                  } else {
+                    // 否则使用原来的方式
+                    await addFolderRecursiveToTarget(
+                      message.payload.sourcePath,
+                      publishFlowManager!,
+                      message.payload.targetPath
+                    );
+                  }
                 } else {
                   const singleTargetPath = message.payload.targetPath
                     ? path.join(message.payload.targetPath, path.basename(message.payload.sourcePath))
                     : path.basename(message.payload.sourcePath);
 
                   publishFlowManager?.addFile(message.payload.sourcePath, singleTargetPath);
-                }
-
-                panel.webview.postMessage({
-                  type: 'configUpdated',
-                  payload: publishFlowManager?.getConfig()
-                });
-              }
-              break;
-
-            case 'moveInPublishList':
-              const { itemId, targetPath } = message.payload;
-              const nodeToMove = publishFlowManager?.findNodeById(itemId);
-
-              if (nodeToMove) {
-                publishFlowManager?.removeNode(itemId);
-
-                if (targetPath) {
-                  const targetFolder = publishFlowManager?.findNodeByPath(targetPath);
-                  if (targetFolder && targetFolder.children) {
-                    targetFolder.children.push(nodeToMove);
-                  }
-                } else {
-                  publishFlowManager?.getConfig().files.push(nodeToMove);
                 }
 
                 await publishFlowManager?.save();
@@ -232,9 +220,74 @@ export function activate(context: vscode.ExtensionContext) {
               }
               break;
 
+            case 'moveInPublishList':
+              const { itemId: moveItemId, targetPath: moveTargetPath, isBatch, itemIds } = message.payload;
+
+              if (isBatch && itemIds && itemIds.length > 1) {
+                // 批量移动
+                const nodesToMove: any[] = [];
+                for (const id of itemIds) {
+                  const node = publishFlowManager?.findNodeById(id);
+                  if (node) {
+                    nodesToMove.push(node);
+                  }
+                }
+
+                // 先移除所有节点
+                for (const id of itemIds) {
+                  publishFlowManager?.removeNode(id);
+                }
+
+                // 添加到目标位置
+                if (moveTargetPath) {
+                  const targetFolder = publishFlowManager?.findNodeByPath(moveTargetPath);
+                  if (targetFolder && targetFolder.children) {
+                    targetFolder.children.push(...nodesToMove);
+                  }
+                } else {
+                  publishFlowManager?.getConfig().files.push(...nodesToMove);
+                }
+              } else {
+                // 单个移动
+                const nodeToMove = publishFlowManager?.findNodeById(moveItemId);
+
+                if (nodeToMove) {
+                  publishFlowManager?.removeNode(moveItemId);
+
+                  if (moveTargetPath) {
+                    const targetFolder = publishFlowManager?.findNodeByPath(moveTargetPath);
+                    if (targetFolder && targetFolder.children) {
+                      targetFolder.children.push(nodeToMove);
+                    }
+                  } else {
+                    publishFlowManager?.getConfig().files.push(nodeToMove);
+                  }
+                }
+              }
+
+              await publishFlowManager?.save();
+              panel.webview.postMessage({
+                type: 'configUpdated',
+                payload: publishFlowManager?.getConfig()
+              });
+              break;
+
             case 'deleteItem':
               if (message.payload?.itemId) {
                 publishFlowManager?.removeNode(message.payload.itemId);
+                await publishFlowManager?.save();
+                panel.webview.postMessage({
+                  type: 'configUpdated',
+                  payload: publishFlowManager?.getConfig()
+                });
+              }
+              break;
+
+            case 'deleteBatch':
+              if (message.payload?.itemIds && Array.isArray(message.payload.itemIds)) {
+                for (const id of message.payload.itemIds) {
+                  publishFlowManager?.removeNode(id);
+                }
                 await publishFlowManager?.save();
                 panel.webview.postMessage({
                   type: 'configUpdated',
@@ -284,29 +337,45 @@ export function activate(context: vscode.ExtensionContext) {
 
 /**
  * 获取 Webview HTML 内容（加载 Vue 构建产物）
+ * 使用 asWebviewUri 方式加载资源
  */
 function getWebviewContent(webview: vscode.Webview, extensionUri: vscode.Uri): string {
+  // 使用 asWebviewUri 转换资源路径
   const scriptUri = webview.asWebviewUri(
     vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'assets', 'main.js')
   );
   const styleUri = webview.asWebviewUri(
-    vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'assets', 'main.css')
+    vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'assets', 'style.css')
   );
+
+  const nonce = getNonce();
 
   return `<!DOCTYPE html>
     <html lang="zh-CN">
     <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src ${webview.cspSource}; style-src ${webview.cspSource} 'unsafe-inline';">
+      <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}'; style-src ${webview.cspSource} 'unsafe-inline'; img-src ${webview.cspSource} data:; font-src ${webview.cspSource};">
       <title>配置发布流程</title>
       <link rel="stylesheet" href="${styleUri}">
     </head>
     <body>
       <div id="app"></div>
-      <script type="module" src="${scriptUri}"></script>
+      <script nonce="${nonce}" src="${scriptUri}"></script>
     </body>
     </html>`;
 }
 
-export function deactivate() {}
+/**
+ * 生成随机 nonce
+ */
+function getNonce(): string {
+  let text = '';
+  const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  for (let i = 0; i < 32; i++) {
+    text += possible.charAt(Math.floor(Math.random() * possible.length));
+  }
+  return text;
+}
+
+export function deactivate() { }

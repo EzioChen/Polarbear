@@ -106,10 +106,15 @@ const handleDragStart = (event: DragEvent) => {
 
   if (event.dataTransfer) {
     event.dataTransfer.effectAllowed = source === 'left' ? 'copy' : 'move';
+    // 传递完整的节点数据，包括 children
     event.dataTransfer.setData('application/json', JSON.stringify({
       itemId: props.item.id,
       sourcePath: props.item.sourcePath,
+      name: props.item.name,
       type: props.item.type,
+      size: props.item.size,
+      lastModified: props.item.lastModified,
+      children: props.item.children,
       source
     }));
   }

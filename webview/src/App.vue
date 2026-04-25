@@ -21,6 +21,7 @@
         @clear-all="handleClearAll"
         @reorder="handleReorder"
         @delete-item="handleDeleteItem"
+        @delete-batch="handleDeleteBatch"
       />
     </div>
 
@@ -94,7 +95,7 @@ const handleDragEnd = () => {
   draggedSource.value = null;
 };
 
-const handleDrop = (data: { itemId: string; sourcePath?: string; targetPath: string | null }) => {
+const handleDrop = (data: { itemId: string; sourcePath?: string; targetPath: string | null; nodeData?: any }) => {
   if (draggedSource.value === 'left') {
     // 从项目文件拖拽到发布清单
     postMessage({
@@ -132,6 +133,13 @@ const handleDeleteItem = (itemId: string) => {
   postMessage({
     type: 'deleteItem',
     payload: { itemId }
+  });
+};
+
+const handleDeleteBatch = (itemIds: string[]) => {
+  postMessage({
+    type: 'deleteBatch',
+    payload: { itemIds }
   });
 };
 

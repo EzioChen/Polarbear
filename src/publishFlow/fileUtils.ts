@@ -34,6 +34,7 @@ export async function scanWorkspace(workspacePath: string): Promise<FileNode[]> 
             type: 'folder',
             name: entry.name,
             path: nodeRelativePath,
+            sourcePath: fullPath,
             children
           });
         } else {

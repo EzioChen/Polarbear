@@ -72,6 +72,7 @@ export type WebviewMessageType =
   | 'addFromProject'
   | 'moveInPublishList'
   | 'deleteItem'
+  | 'deleteBatch'
   | 'confirmClear';
 
 export interface WebviewMessage {
