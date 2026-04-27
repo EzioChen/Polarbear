@@ -7,6 +7,12 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { ReleaseNotesManager } from './releaseNotes/ReleaseNotesManager';
 import type { ReleaseNotesMessage } from './releaseNotes/types';
+import { EmailService } from './emailService/EmailService';
+import { EmailEditorPanel } from './emailService/webview/EmailEditorPanel';
+import { EmailConfigPanel } from './emailService/webview/EmailConfigPanel';
+import { ConfigManager } from './emailService/ConfigManager';
+import type { SendEmailOptions } from './emailService/types';
+import { parseAndValidateRecipients, validateSMTPConfig } from './emailService/validators';
 
 // 全局管理器实例
 let publishFlowManager: PublishFlowManager | undefined;
@@ -478,6 +484,223 @@ export function activate(context: vscode.ExtensionContext) {
     }
   );
 
+  // ============ 邮件服务命令注册 ============
+
+  // 初始化邮件服务
+  let emailServiceInitialized = false;
+  async function ensureEmailService(): Promise<EmailService | null> {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) {
+      vscode.window.showErrorMessage('请先打开一个工作区');
+      return null;
+    }
+
+    const emailService = EmailService.getInstance();
+    if (!emailService.isInitialized()) {
+      try {
+        await emailService.initialize(workspaceFolder.uri.fsPath, context);
+        emailServiceInitialized = true;
+      } catch (error) {
+        const err = error as { message?: string };
+        vscode.window.showErrorMessage(`邮件服务初始化失败: ${err.message || '未知错误'}`);
+        return null;
+      }
+    }
+    return emailService;
+  }
+
+  // 打开邮件编辑器
+  const emailOpenEditorDisposable = vscode.commands.registerCommand(
+    'polarbear.email.openEditor',
+    async () => {
+      const emailService = await ensureEmailService();
+      if (!emailService) return;
+
+      EmailEditorPanel.createOrShow(context.extensionUri, context);
+    }
+  );
+
+  // 配置邮件服务 - 使用独立的 Webview 配置页面
+  const emailConfigureDisposable = vscode.commands.registerCommand(
+    'polarbear.email.configure',
+    async () => {
+      const emailService = await ensureEmailService();
+      if (!emailService) return;
+
+      // 打开独立的配置面板
+      EmailConfigPanel.createOrShow(context.extensionUri, context);
+    }
+  );
+
+  // 测试 SMTP 连接
+  const emailTestConnectionDisposable = vscode.commands.registerCommand(
+    'polarbear.email.testConnection',
+    async () => {
+      const emailService = await ensureEmailService();
+      if (!emailService) return;
+
+      await vscode.window.withProgress({
+        location: vscode.ProgressLocation.Notification,
+        title: '正在测试 SMTP 连接...',
+        cancellable: false,
+      }, async () => {
+        const result = await emailService.testConnection();
+
+        if (result.success) {
+          vscode.window.showInformationMessage(`SMTP 连接成功！响应时间: ${result.responseTime}ms`);
+        } else {
+          vscode.window.showErrorMessage(
+            `连接失败: ${result.error?.message || '未知错误'}`,
+            '重试',
+            '查看配置'
+          ).then(selection => {
+            if (selection === '重试') {
+              vscode.commands.executeCommand('polarbear.email.testConnection');
+            } else if (selection === '查看配置') {
+              vscode.commands.executeCommand('polarbear.email.configure');
+            }
+          });
+        }
+      });
+    }
+  );
+
+  // 验证邮件配置
+  const emailValidateDisposable = vscode.commands.registerCommand(
+    'polarbear.email.validateConfig',
+    async () => {
+      const emailService = await ensureEmailService();
+      if (!emailService) return;
+
+      const result = await emailService.validateConfig();
+
+      if (result.valid) {
+        if (result.warnings.length > 0) {
+          const warningMessages = result.warnings.map(w => `  ⚠ ${w.field}: ${w.message}`).join('\n');
+          vscode.window.showWarningMessage(
+            `配置验证通过，但有 ${result.warnings.length} 个警告`,
+            '查看详情'
+          ).then(() => {
+            emailService.showLogs();
+            emailService.log('WARN', `配置验证警告:\n${warningMessages}`);
+          });
+        } else {
+          vscode.window.showInformationMessage('配置验证通过！');
+        }
+      } else {
+        const errorMessages = result.errors.map(e => `  ✗ ${e.field}: ${e.message}`).join('\n');
+        vscode.window.showErrorMessage(
+          `配置验证失败: ${result.errors.length} 个错误`,
+          '查看详情',
+          '打开配置'
+        ).then(selection => {
+          if (selection === '查看详情') {
+            emailService.showLogs();
+            emailService.log('ERROR', `配置验证错误:\n${errorMessages}`);
+          } else if (selection === '打开配置') {
+            vscode.commands.executeCommand('polarbear.email.configure');
+          }
+        });
+      }
+    }
+  );
+
+  // 重新加载配置
+  const emailReloadDisposable = vscode.commands.registerCommand(
+    'polarbear.email.reloadConfig',
+    async () => {
+      const emailService = await ensureEmailService();
+      if (!emailService) return;
+
+      try {
+        await emailService.reloadConfig();
+        vscode.window.showInformationMessage('配置已重新加载');
+      } catch (error) {
+        vscode.window.showErrorMessage(`重新加载配置失败: ${(error as Error).message}`);
+      }
+    }
+  );
+
+  // 快速发送邮件
+  const emailSendQuickDisposable = vscode.commands.registerCommand(
+    'polarbear.email.sendQuick',
+    async () => {
+      const emailService = await ensureEmailService();
+      if (!emailService) return;
+
+      const to = await vscode.window.showInputBox({
+        prompt: '收件人邮箱',
+        placeHolder: 'recipient@example.com',
+        validateInput: (value) => {
+          if (!value || value.trim().length === 0) return '收件人不能为空';
+          const { result } = parseAndValidateRecipients(value);
+          if (!result.valid) return result.error;
+          return null;
+        }
+      });
+      if (!to) return;
+
+      const subject = await vscode.window.showInputBox({
+        prompt: '邮件主题',
+        placeHolder: '请输入邮件主题',
+        validateInput: (value) => {
+          if (!value || value.trim().length === 0) return '主题不能为空';
+          return null;
+        }
+      });
+      if (!subject) return;
+
+      const content = await vscode.window.showInputBox({
+        prompt: '邮件内容（纯文本）',
+        placeHolder: '请输入邮件内容',
+        value: 'Hello',
+      });
+      if (!content) return;
+
+      const options: SendEmailOptions = {
+        to: to.split(/[;,]/).map(e => e.trim()).filter(e => e.length > 0),
+        subject,
+        text: content,
+      };
+
+      await vscode.window.withProgress({
+        location: vscode.ProgressLocation.Notification,
+        title: '正在发送邮件...',
+        cancellable: false,
+      }, async () => {
+        const result = await emailService.sendEmail(options);
+        if (result.success) {
+          vscode.window.showInformationMessage(`邮件发送成功！耗时: ${result.duration}ms`);
+        } else {
+          vscode.window.showErrorMessage(`发送失败: ${result.error?.message || '未知错误'}`);
+        }
+      });
+    }
+  );
+
+  // 查看邮件日志
+  const emailShowLogsDisposable = vscode.commands.registerCommand(
+    'polarbear.email.showLogs',
+    async () => {
+      const emailService = EmailService.getInstance();
+      if (emailService.isInitialized()) {
+        emailService.showLogs();
+      } else {
+        vscode.window.showInformationMessage('邮件服务未初始化，请先配置邮件服务');
+      }
+    }
+  );
+
+  // ============ 状态栏集成 ============
+  const statusBarItem = vscode.window.createStatusBarItem(
+    vscode.StatusBarAlignment.Right,
+    100
+  );
+  statusBarItem.text = '$(mail)';
+  statusBarItem.tooltip = 'PolarBear 邮件服务';
+  statusBarItem.command = 'polarbear.email.openEditor';
+  statusBarItem.show();
+
   // 注册侧边栏 TreeView
   const polarBearViewProvider = new PolarBearViewProvider();
   vscode.window.registerTreeDataProvider('polarbearView', polarBearViewProvider);
@@ -488,6 +711,23 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(addPublishFlowDisposable);
   context.subscriptions.push(openPublishFlowDisposable);
   context.subscriptions.push(openReleaseNotesDisposable);
+  context.subscriptions.push(emailOpenEditorDisposable);
+  context.subscriptions.push(emailConfigureDisposable);
+  context.subscriptions.push(emailTestConnectionDisposable);
+  context.subscriptions.push(emailValidateDisposable);
+  context.subscriptions.push(emailReloadDisposable);
+  context.subscriptions.push(emailSendQuickDisposable);
+  context.subscriptions.push(emailShowLogsDisposable);
+  context.subscriptions.push(statusBarItem);
+
+  // 注册配置变更监听（更新状态栏）
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration(e => {
+      if (e.affectsConfiguration('polarbear.email')) {
+        // 配置变更时更新状态栏
+      }
+    })
+  );
 }
 
 /**
@@ -562,4 +802,13 @@ function getReleaseNotesWebviewContent(webview: vscode.Webview, extensionUri: vs
     </html>`;
 }
 
-export function deactivate() { }
+export function deactivate() {
+  // 清理邮件服务资源
+  const emailService = EmailService.getInstance();
+  if (emailService.isInitialized()) {
+    const logger = emailService.getLogger();
+    if (logger) {
+      logger.dispose();
+    }
+  }
+}

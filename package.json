@@ -42,6 +42,48 @@
         "command": "polarbear.openReleaseNotes",
         "title": "Open Release Notes",
         "icon": "$(book)"
+      },
+      {
+        "command": "polarbear.email.openEditor",
+        "title": "打开邮件编辑器",
+        "category": "PolarBear Email",
+        "icon": "$(mail)"
+      },
+      {
+        "command": "polarbear.email.configure",
+        "title": "配置邮件服务",
+        "category": "PolarBear Email",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "polarbear.email.testConnection",
+        "title": "测试 SMTP 连接",
+        "category": "PolarBear Email",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "polarbear.email.validateConfig",
+        "title": "验证邮件配置",
+        "category": "PolarBear Email",
+        "icon": "$(check)"
+      },
+      {
+        "command": "polarbear.email.reloadConfig",
+        "title": "重新加载配置",
+        "category": "PolarBear Email",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "polarbear.email.sendQuick",
+        "title": "快速发送邮件",
+        "category": "PolarBear Email",
+        "icon": "$(send)"
+      },
+      {
+        "command": "polarbear.email.showLogs",
+        "title": "查看邮件日志",
+        "category": "PolarBear Email",
+        "icon": "$(output)"
       }
     ],
     "viewsContainers": {
@@ -61,7 +103,49 @@
           "type": "tree"
         }
       ]
-    }
+    },
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "polarbear.email.openEditor",
+          "category": "PolarBear Email"
+        },
+        {
+          "command": "polarbear.email.configure",
+          "category": "PolarBear Email"
+        },
+        {
+          "command": "polarbear.email.testConnection",
+          "category": "PolarBear Email"
+        },
+        {
+          "command": "polarbear.email.validateConfig",
+          "category": "PolarBear Email"
+        },
+        {
+          "command": "polarbear.email.reloadConfig",
+          "category": "PolarBear Email"
+        },
+        {
+          "command": "polarbear.email.showLogs",
+          "category": "PolarBear Email"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "polarbear.email.openEditor",
+        "key": "ctrl+shift+m",
+        "mac": "cmd+shift+m",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "polarbear.email.sendQuick",
+        "key": "ctrl+shift+enter",
+        "mac": "cmd+shift+enter",
+        "when": "editorTextFocus"
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run package",
@@ -78,14 +162,19 @@
   "devDependencies": {
     "@types/mocha": "^10.0.10",
     "@types/node": "22.x",
+    "@types/nodemailer": "^8.0.0",
     "@types/vscode": "^1.116.0",
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.5.2",
+    "copy-webpack-plugin": "^14.0.0",
     "eslint": "^9.39.3",
     "ts-loader": "^9.5.4",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.56.1",
     "webpack": "^5.105.3",
     "webpack-cli": "^6.0.1"
+  },
+  "dependencies": {
+    "nodemailer": "^8.0.7"
   }
 }

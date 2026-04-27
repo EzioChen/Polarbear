@@ -74,6 +74,22 @@ export class PolarBearViewProvider implements vscode.TreeDataProvider<PolarBearI
                     'account'
                 ),
                 new PolarBearItem(
+                    '发布说明',
+                    vscode.TreeItemCollapsibleState.None,
+                    {
+                        command: 'polarbear.openReleaseNotes',
+                        title: 'Open Release Notes',
+                        arguments: []
+                    },
+                    'book'
+                ),
+                new PolarBearItem(
+                    '邮件服务',
+                    vscode.TreeItemCollapsibleState.Expanded,
+                    undefined,
+                    'mail'
+                ),
+                new PolarBearItem(
                     '设置',
                     vscode.TreeItemCollapsibleState.None,
                     {
@@ -85,6 +101,53 @@ export class PolarBearViewProvider implements vscode.TreeDataProvider<PolarBearI
                 )
             ]);
         }
+
+        // 邮件服务子菜单
+        if (element.label === '邮件服务') {
+            return Promise.resolve([
+                new PolarBearItem(
+                    '写邮件',
+                    vscode.TreeItemCollapsibleState.None,
+                    {
+                        command: 'polarbear.email.openEditor',
+                        title: '打开邮件编辑器',
+                        arguments: []
+                    },
+                    'edit'
+                ),
+                new PolarBearItem(
+                    '快速发送',
+                    vscode.TreeItemCollapsibleState.None,
+                    {
+                        command: 'polarbear.email.sendQuick',
+                        title: '快速发送邮件',
+                        arguments: []
+                    },
+                    'send'
+                ),
+                new PolarBearItem(
+                    '配置邮件',
+                    vscode.TreeItemCollapsibleState.None,
+                    {
+                        command: 'polarbear.email.configure',
+                        title: '配置邮件服务',
+                        arguments: []
+                    },
+                    'gear'
+                ),
+                new PolarBearItem(
+                    '测试连接',
+                    vscode.TreeItemCollapsibleState.None,
+                    {
+                        command: 'polarbear.email.testConnection',
+                        title: '测试 SMTP 连接',
+                        arguments: []
+                    },
+                    'plug'
+                )
+            ]);
+        }
+
         return Promise.resolve([]);
     }
 }
