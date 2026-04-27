@@ -132,7 +132,7 @@ const emit = defineEmits<{
   batchSelect: [itemIds: string[]];
 }>();
 
-const isExpanded = ref(true);
+const isExpanded = ref(false);
 const isDropTarget = ref(false);
 const isDragging = ref(false);
 const dragCounter = ref(0);

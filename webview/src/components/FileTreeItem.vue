@@ -79,7 +79,7 @@ const emit = defineEmits<{
   delete: [itemId: string];
 }>();
 
-const isExpanded = ref(true);
+const isExpanded = ref(false);
 const isDropTarget = ref(false);
 
 const canDropHere = computed(() => {

@@ -8,7 +8,7 @@
 
     <div class="main-content">
       <ProjectPanel
-        :files="projectFiles"
+        :files="filteredProjectFiles"
         @drag-start="handleDragStart"
         @drag-end="handleDragEnd"
       />
@@ -44,6 +44,58 @@ const projectFiles = ref<FileNode[]>([]);
 const publishFiles = ref<FileNode[]>([]);
 const draggedItem = ref<FileNode | null>(null);
 const draggedSource = ref<DragSource | null>(null);
+
+// 获取所有已发布文件的 sourcePath 集合
+const getPublishedPaths = (nodes: FileNode[]): Set<string> => {
+  const paths = new Set<string>();
+  const traverse = (nodeList: FileNode[]) => {
+    for (const node of nodeList) {
+      if (node.sourcePath) {
+        paths.add(node.sourcePath);
+      }
+      if (node.children) {
+        traverse(node.children);
+      }
+    }
+  };
+  traverse(nodes);
+  return paths;
+};
+
+// 过滤项目文件，排除已发布清单中的文件/文件夹
+const filterProjectFiles = (nodes: FileNode[], publishedPaths: Set<string>): FileNode[] => {
+  const result: FileNode[] = [];
+
+  for (const node of nodes) {
+    // 如果当前节点已在发布清单中，完全跳过
+    if (node.sourcePath && publishedPaths.has(node.sourcePath)) {
+      continue;
+    }
+
+    // 如果是文件夹，递归过滤子节点
+    if (node.type === 'folder' && node.children) {
+      const filteredChildren = filterProjectFiles(node.children, publishedPaths);
+      // 如果过滤后还有子节点，或者文件夹本身不在发布清单中，保留该文件夹
+      if (filteredChildren.length > 0) {
+        result.push({
+          ...node,
+          children: filteredChildren
+        });
+      }
+    } else {
+      // 文件直接添加
+      result.push(node);
+    }
+  }
+
+  return result;
+};
+
+// 过滤后的项目文件（排除已发布清单中的文件）
+const filteredProjectFiles = computed<FileNode[]>(() => {
+  const publishedPaths = getPublishedPaths(publishFiles.value);
+  return filterProjectFiles(projectFiles.value, publishedPaths);
+});
 
 const publishStats = computed<PublishStats>(() => {
   let totalFiles = 0;

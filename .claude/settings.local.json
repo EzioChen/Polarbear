@@ -12,7 +12,8 @@
       "Bash(ls /Volumes/O/AGit/Extension/polarbear/webview/tsconfig.*)",
       "Bash(npx vue-tsc:*)",
       "Bash(npx webpack:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(git status:*)"
     ]
   }
 }
