@@ -5,6 +5,8 @@ import type { WebviewMessage } from './publishFlow/types';
 import { scanWorkspace, addFolderRecursiveToTarget } from './publishFlow/fileUtils';
 import * as path from 'path';
 import * as fs from 'fs';
+import { ReleaseNotesManager } from './releaseNotes/ReleaseNotesManager';
+import type { ReleaseNotesMessage } from './releaseNotes/types';
 
 // 全局管理器实例
 let publishFlowManager: PublishFlowManager | undefined;
@@ -327,8 +329,152 @@ export function activate(context: vscode.ExtensionContext) {
   // 注册发布说明命令
   const openReleaseNotesDisposable = vscode.commands.registerCommand(
     'polarbear.openReleaseNotes',
-    () => {
-      vscode.window.showInformationMessage('发布说明功能开发中...');
+    async () => {
+      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+      if (!workspaceFolder) {
+        vscode.window.showErrorMessage('请先打开一个工作区');
+        return;
+      }
+
+      // 初始化发布说明管理器
+      const releaseNotesManager = new ReleaseNotesManager(workspaceFolder.uri.fsPath);
+
+      // 创建 Webview Panel
+      const panel = vscode.window.createWebviewPanel(
+        'polarbear.releaseNotes',
+        '发布说明',
+        vscode.ViewColumn.One,
+        {
+          enableScripts: true,
+          retainContextWhenHidden: true,
+          enableCommandUris: true,
+          enableFindWidget: true,
+          localResourceRoots: [
+            vscode.Uri.file(context.extensionPath)
+          ]
+        }
+      );
+
+      // 设置 HTML 内容
+      panel.webview.html = getReleaseNotesWebviewContent(panel.webview, context.extensionUri);
+
+      // 处理消息
+      panel.webview.onDidReceiveMessage(
+        async (message: ReleaseNotesMessage) => {
+          switch (message.type) {
+            case 'getReleaseNotesConfig':
+              panel.webview.postMessage({
+                type: 'releaseNotesConfigUpdated',
+                payload: releaseNotesManager.getConfig()
+              });
+              break;
+
+            case 'saveReleaseNotes':
+              try {
+                // 验证数据
+                releaseNotesManager.updateConfig(message.payload);
+                const validation = releaseNotesManager.validate();
+
+                if (!validation.valid) {
+                  panel.webview.postMessage({
+                    type: 'releaseNotesSaveError',
+                    payload: {
+                      message: '验证失败',
+                      errors: validation.errors
+                    }
+                  });
+                  return;
+                }
+
+                // 保存配置
+                const saveSuccess = await releaseNotesManager.save();
+
+                if (saveSuccess) {
+                  panel.webview.postMessage({
+                    type: 'releaseNotesSaved',
+                    payload: releaseNotesManager.getConfig()
+                  });
+                  vscode.window.showInformationMessage('发布说明已保存');
+                } else {
+                  const status = releaseNotesManager.getSaveStatus();
+                  panel.webview.postMessage({
+                    type: 'releaseNotesSaveError',
+                    payload: {
+                      message: status.error || '保存失败'
+                    }
+                  });
+                  vscode.window.showErrorMessage(`保存失败: ${status.error}`);
+                }
+              } catch (error) {
+                console.error('保存发布说明失败:', error);
+                panel.webview.postMessage({
+                  type: 'releaseNotesSaveError',
+                  payload: {
+                    message: error instanceof Error ? error.message : '未知错误'
+                  }
+                });
+                vscode.window.showErrorMessage('保存发布说明失败');
+              }
+              break;
+
+            case 'autoSaveReleaseNotes':
+              try {
+                releaseNotesManager.updateConfig(message.payload);
+                const autoSaveSuccess = await releaseNotesManager.save();
+
+                if (autoSaveSuccess) {
+                  panel.webview.postMessage({
+                    type: 'releaseNotesSaved',
+                    payload: releaseNotesManager.getConfig()
+                  });
+                } else {
+                  const status = releaseNotesManager.getSaveStatus();
+                  panel.webview.postMessage({
+                    type: 'releaseNotesSaveError',
+                    payload: {
+                      message: status.error || '自动保存失败'
+                    }
+                  });
+                }
+              } catch (error) {
+                console.error('自动保存失败:', error);
+              }
+              break;
+
+            case 'importReleaseNotes':
+              try {
+                const uris = await vscode.window.showOpenDialog({
+                  canSelectFiles: true,
+                  canSelectFolders: false,
+                  canSelectMany: false,
+                  filters: {
+                    'Markdown': ['md'],
+                    'All Files': ['*']
+                  },
+                  openLabel: '导入'
+                });
+
+                if (uris && uris.length > 0) {
+                  const markdownContent = fs.readFileSync(uris[0].fsPath, 'utf-8');
+                  releaseNotesManager.updateConfig({ releaseNotes: markdownContent });
+                  await releaseNotesManager.save();
+
+                  panel.webview.postMessage({
+                    type: 'releaseNotesConfigUpdated',
+                    payload: releaseNotesManager.getConfig()
+                  });
+                  vscode.window.showInformationMessage('Markdown 文档已导入');
+                }
+              } catch (error) {
+                console.error('导入失败:', error);
+                vscode.window.showErrorMessage('导入失败');
+              }
+              break;
+          }
+        },
+        undefined,
+        context.subscriptions
+      );
     }
   );
 
@@ -369,7 +515,7 @@ function getWebviewContent(webview: vscode.Webview, extensionUri: vscode.Uri): s
       <link rel="stylesheet" href="${styleUri}">
     </head>
     <body>
-      <div id="app"></div>
+      <div id="app" data-page="publish-flow"></div>
       <script nonce="${nonce}" src="${scriptUri}"></script>
     </body>
     </html>`;
@@ -385,6 +531,35 @@ function getNonce(): string {
     text += possible.charAt(Math.floor(Math.random() * possible.length));
   }
   return text;
+}
+
+/**
+ * 获取发布说明 Webview HTML 内容
+ */
+function getReleaseNotesWebviewContent(webview: vscode.Webview, extensionUri: vscode.Uri): string {
+  const scriptUri = webview.asWebviewUri(
+    vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'assets', 'main.js')
+  );
+  const styleUri = webview.asWebviewUri(
+    vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'assets', 'style.css')
+  );
+
+  const nonce = getNonce();
+
+  return `<!DOCTYPE html>
+    <html lang="zh-CN">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}'; style-src ${webview.cspSource} 'unsafe-inline'; img-src ${webview.cspSource} data:; font-src ${webview.cspSource};">
+      <title>发布说明</title>
+      <link rel="stylesheet" href="${styleUri}">
+    </head>
+    <body>
+      <div id="app" data-page="release-notes"></div>
+      <script nonce="${nonce}" src="${scriptUri}"></script>
+    </body>
+    </html>`;
 }
 
 export function deactivate() { }

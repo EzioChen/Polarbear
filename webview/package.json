@@ -8,6 +8,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "highlight.js": "^11.11.1",
+    "marked": "^18.0.2",
     "vue": "^3.4.0",
     "vue-draggable-plus": "^0.6.1"
   },

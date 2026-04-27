@@ -7,7 +7,12 @@
       "Bash(code --version)",
       "Bash(code --extensionDevelopmentPath=/Volumes/O/AGit/Extension/polarbear --new-window)",
       "Bash(code --extensionDevelopmentPath=/Volumes/O/AGit/Extension/polarbear /Volumes/O/AGit/Extension/polarbear --new-window)",
-      "Bash(disown)"
+      "Bash(disown)",
+      "Bash(ls /Volumes/O/AGit/Extension/polarbear/webview/vite.config.*)",
+      "Bash(ls /Volumes/O/AGit/Extension/polarbear/webview/tsconfig.*)",
+      "Bash(npx vue-tsc:*)",
+      "Bash(npx webpack:*)",
+      "Bash(npx tsc:*)"
     ]
   }
 }
