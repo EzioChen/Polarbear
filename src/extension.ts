@@ -324,6 +324,14 @@ export function activate(context: vscode.ExtensionContext) {
     }
   );
 
+  // 注册发布说明命令
+  const openReleaseNotesDisposable = vscode.commands.registerCommand(
+    'polarbear.openReleaseNotes',
+    () => {
+      vscode.window.showInformationMessage('发布说明功能开发中...');
+    }
+  );
+
   // 注册侧边栏 TreeView
   const polarBearViewProvider = new PolarBearViewProvider();
   vscode.window.registerTreeDataProvider('polarbearView', polarBearViewProvider);
@@ -333,6 +341,7 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(openSettingsDisposable);
   context.subscriptions.push(addPublishFlowDisposable);
   context.subscriptions.push(openPublishFlowDisposable);
+  context.subscriptions.push(openReleaseNotesDisposable);
 }
 
 /**

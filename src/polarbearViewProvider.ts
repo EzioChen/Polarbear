@@ -54,6 +54,16 @@ export class PolarBearViewProvider implements vscode.TreeDataProvider<PolarBearI
                     'add'
                 ),
                 new PolarBearItem(
+                    '发布说明',
+                    vscode.TreeItemCollapsibleState.None,
+                    {
+                        command: 'polarbear.openReleaseNotes',
+                        title: 'Open Release Notes',
+                        arguments: []
+                    },
+                    'book'
+                ),
+                new PolarBearItem(
                     '测试登录',
                     vscode.TreeItemCollapsibleState.None,
                     {

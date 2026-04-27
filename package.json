@@ -37,6 +37,11 @@
         "command": "polarbear.openPublishFlow",
         "title": "Open Publish Flow",
         "icon": "$(gear)"
+      },
+      {
+        "command": "polarbear.openReleaseNotes",
+        "title": "Open Release Notes",
+        "icon": "$(book)"
       }
     ],
     "viewsContainers": {
