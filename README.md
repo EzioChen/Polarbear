@@ -1,71 +1,174 @@
-# polarbear README
+# PolarBear
 
-This is the README for your extension "polarbear". After writing up a brief description, we recommend including the following sections.
+一个专为 SDK/组件发布设计的 VS Code 插件，提供从文件选择、打包、生成发布说明到邮件通知的完整发布流程管理工具。
 
-## Features
+## 功能特性
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+### 📦 发布流程管理
+- **可视化文件选择**: 通过树形界面选择需要发布的文件和文件夹
+- **智能打包**: 自动将选中的文件打包成 ZIP 格式，支持增量打包和缓存机制
+- **发布清单**: 保存发布配置，支持多次复用和版本管理
 
-For example if there is an image subfolder under your extension project workspace:
+### 📝 发布说明生成
+- **模板化发布说明**: 根据版本号、更新内容自动生成标准化的发布说明文档
+- **版本管理**: 支持版本号自动递增（Patch/Minor/Major）
+- **多 SDK 支持**: 可同时管理多个 SDK 版本的发布说明
+- **Markdown 导出**: 生成格式化的 Markdown 发布说明
 
-\!\[feature X\]\(images/feature-x.png\)
+### 📧 邮件服务
+- **SMTP 配置**: 支持配置多个 SMTP 服务器，密码安全存储在 VS Code Secret Storage 中
+- **可视化邮件编辑器**: 内置富文本邮件编辑器，支持 HTML 格式
+- **附件支持**: 可直接将打包好的 SDK 文件作为邮件附件发送
+- **快速发送**: 支持快捷键快速发送邮件（Cmd/Ctrl + Shift + Enter）
+- **收件人管理**: 支持 To/Cc/Bcc 多种收件人类型，自动验证邮箱格式
+- **邮件模板**: 自动生成包含发布摘要的商务邮件格式
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
+### 🎯 发布时间线
+- **一站式发布面板**: 整合打包、生成发布说明、发送邮件的完整流程
+- **实时状态反馈**: 显示每个步骤的执行状态和进度
+- **一键发布**: 简化操作流程，提高发布效率
 
-## Requirements
+## 使用方法
 
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+### 打开 PolarBear 面板
+1. 点击 VS Code 左侧活动栏的 PolarBear 图标
+2. 或使用命令面板（Cmd/Ctrl + Shift + P）搜索 "PolarBear"
 
-## Extension Settings
+### 配置发布流程
+1. 点击"增加发布流程"打开文件选择界面
+2. 拖拽或选择需要发布的文件/文件夹
+3. 配置目标路径和文件结构
+4. 保存发布清单
 
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
+### 编写发布说明
+1. 点击"发布说明"打开编辑器
+2. 填写版本号、更新内容、兼容性说明等信息
+3. 支持实时预览和自动保存
 
-For example:
+### 配置邮件服务
+1. 点击"邮件服务" -> "配置邮件"
+2. 填写 SMTP 服务器信息、发件人邮箱和密码
+3. 点击"测试连接"验证配置是否正确
 
-This extension contributes the following settings:
+### 发送发布邮件
+1. 点击"写邮件"打开邮件编辑器
+2. 填写收件人、邮件主题
+3. 选择要发送的 SDK 附件
+4. 点击发送或使用快捷键 Cmd/Ctrl + Shift + Enter
 
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
+### 一键发布
+1. 点击"开始发布"打开发布时间线
+2. 按顺序执行：打包 -> 生成发布说明 -> 发送邮件
+3. 全程可视化操作，实时查看进度
 
-## Known Issues
+## 命令列表
 
-Calling out known issues can help limit users opening duplicate issues against your extension.
+| 命令 | 快捷键 | 说明 |
+|------|--------|------|
+| PolarBear: 增加发布流程 | - | 打开发布流程配置界面 |
+| PolarBear: 发布说明 | - | 打开发布说明编辑器 |
+| PolarBear: 开始发布 | - | 打开发布时间线面板 |
+| PolarBear Email: 打开邮件编辑器 | Cmd/Ctrl+Shift+M | 打开邮件编辑界面 |
+| PolarBear Email: 快速发送邮件 | Cmd/Ctrl+Shift+Enter | 快速发送邮件 |
+| PolarBear Email: 配置邮件服务 | - | 配置 SMTP 服务器 |
+| PolarBear Email: 测试 SMTP 连接 | - | 测试邮件服务器连接 |
 
-## Release Notes
+## 配置说明
 
-Users appreciate release notes as you update your extension.
+### 邮件配置文件
+邮件配置存储在工作区 `.releasePlan/email-config.json` 文件中：
 
-### 1.0.0
+```json
+{
+  "smtp": {
+    "host": "smtp.example.com",
+    "port": 587,
+    "secure": false,
+    "user": "your-email@example.com"
+  },
+  "from": "your-email@example.com",
+  "fromName": "Your Name",
+  "retry": {
+    "enabled": true,
+    "maxRetries": 3,
+    "retryDelay": 5000
+  }
+}
+```
 
-Initial release of ...
+**注意**: SMTP 密码安全存储在 VS Code 的 Secret Storage 中，不会保存在配置文件中。
 
-### 1.0.1
+### 发布清单配置
+发布清单存储在工作区 `.releasePlan/publish-config.json` 文件中，包含：
+- 要发布的文件和文件夹列表
+- 目标路径结构
+- 文件元数据（大小、修改时间等）
 
-Fixed issue #.
+### 发布说明配置
+发布说明配置存储在工作区 `.releasePlan/release-notes.json` 文件中，包含：
+- 版本号信息
+- 更新内容
+- 兼容性说明
+- 已知问题
 
-### 1.1.0
+## 文件结构
 
-Added features X, Y, and Z.
+```
+.releasePlan/
+├── publish-config.json      # 发布清单配置
+├── release-notes.json       # 发布说明配置
+├── release-subject.json     # 发布主题
+├── email-config.json        # 邮件服务配置（不含密码）
+└── cache/                   # 打包缓存目录
+    └── *.zip               # 生成的 SDK 包
+```
 
----
+## 技术栈
 
-## Following extension guidelines
+- **前端**: Vue 3 + TypeScript + Vite
+- **后端**: VS Code Extension API + Node.js
+- **构建**: Webpack + TypeScript
+- **邮件**: Nodemailer
+- **打包**: JSZip
 
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
+## 开发
 
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
+```bash
+# 安装依赖
+npm install
 
-## Working with Markdown
+# 编译 Webview
+npm run build:webview
 
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
+# 开发模式
+npm run watch
 
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
+# 打包发布
+npm run package
 
-## For more information
+# 运行测试
+npm run test
+```
 
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
+## 要求
 
-**Enjoy!**
+- VS Code 版本 >= 1.74.0
+- Node.js 版本 >= 18.x
+
+## 已知问题
+
+暂无已知问题。如有问题请在 GitHub Issues 中反馈。
+
+## 更新日志
+
+### 0.0.1
+
+- 初始版本发布
+- 实现发布流程管理功能
+- 实现发布说明生成功能
+- 实现邮件服务功能
+- 实现发布时间线面板
+
+## 许可证
+
+MIT
