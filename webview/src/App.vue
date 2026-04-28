@@ -21,9 +21,9 @@ const isEmailConfig = ref(false);
 const pageLoaded = ref(false);
 
 onMounted(() => {
-  // 通过 data-page 属性判断页面类型
+  // 通过 data-page 或 data-view 属性判断页面类型
   const appElement = document.getElementById('app');
-  const pageType = appElement?.dataset.page;
+  const pageType = appElement?.dataset.page || appElement?.dataset.view;
   console.log('[App] Page type:', pageType);
   isReleaseNotes.value = pageType === 'release-notes';
   isEmailEditor.value = pageType === 'email-editor';

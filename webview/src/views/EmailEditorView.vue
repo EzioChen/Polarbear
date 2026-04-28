@@ -422,6 +422,21 @@ window.addEventListener('message', (event) => {
         attachments.value = message.data.attachments || [];
       }
       break;
+    case 'configLoaded':
+      // 加载默认收件人和抄送人
+      if (message.data) {
+        const defaultTo: Array<{ name?: string; email: string }> = message.data.defaultTo || [];
+        const defaultCc: Array<{ name?: string; email: string }> = message.data.defaultCc || [];
+        
+        // 只有在表单为空时才填充默认值
+        if (!form.value.to && defaultTo.length > 0) {
+          form.value.to = defaultTo.map(c => c.email).join(';');
+        }
+        if (!form.value.cc && defaultCc.length > 0) {
+          form.value.cc = defaultCc.map(c => c.email).join(';');
+        }
+      }
+      break;
     case 'attachmentsUpdated':
       attachments.value = message.data?.attachments || [];
       break;

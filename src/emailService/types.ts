@@ -1,5 +1,13 @@
 import type { Readable } from 'stream';
 
+// ============ 联系人类型 ============
+
+export interface Contact {
+  id: string;
+  name: string;
+  email: string;
+}
+
 // ============ SMTP 配置类型 ============
 
 export interface SMTPConfig {
@@ -40,6 +48,8 @@ export interface SMTPConfig {
     logToFile?: boolean;
     logFilePath?: string | null;
   };
+  defaultTo?: Contact[];
+  defaultCc?: Contact[];
 }
 
 // ============ 邮件发送选项 ============

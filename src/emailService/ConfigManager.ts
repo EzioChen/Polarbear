@@ -150,17 +150,19 @@ export class ConfigManager {
    * 更新配置（部分更新）
    */
   async updateConfig(partial: Partial<SMTPConfig>): Promise<void> {
+    // 如果配置未加载，使用默认配置作为基础
+    let baseConfig: SMTPConfig;
     if (!this.config) {
-      throw this.createError(
-        EmailErrorCode.SERVICE_NOT_INITIALIZED,
-        ERROR_MESSAGES.SERVICE_NOT_INITIALIZED
-      );
+      baseConfig = { ...DEFAULT_SMTP_CONFIG } as SMTPConfig;
+      this.isLoaded = true;
+    } else {
+      baseConfig = { ...this.config };
     }
 
     // 深度合并
     const merged = this.deepMerge(
-      { ...this.config } as Record<string, unknown>,
-      partial as Record<string, unknown>
+      baseConfig as unknown as Record<string, unknown>,
+      partial as unknown as Record<string, unknown>
     ) as unknown as SMTPConfig;
 
     // 验证合并后的配置

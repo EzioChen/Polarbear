@@ -57,6 +57,7 @@ export class EmailEditorPanel {
             break;
           case 'editorReady':
             await this.handleCheckDraft();
+            await this.handleLoadConfig();
             break;
         }
       },
@@ -259,6 +260,28 @@ export class EmailEditorPanel {
       }
     } catch {
       // ignore
+    }
+  }
+
+  private async handleLoadConfig(): Promise<void> {
+    try {
+      const emailService = EmailService.getInstance();
+      const configManager = emailService.getConfigManager();
+      
+      if (configManager) {
+        const config = configManager.getConfig();
+        if (config) {
+          // 提取默认收件人和抄送人
+          const defaultRecipients = {
+            defaultTo: config.defaultTo || [],
+            defaultCc: config.defaultCc || [],
+          };
+          this.postMessage('configLoaded', defaultRecipients);
+        }
+      }
+    } catch (error) {
+      console.error('[EmailEditorPanel] 加载配置失败:', error);
+      // 忽略错误，不影响编辑器使用
     }
   }
 

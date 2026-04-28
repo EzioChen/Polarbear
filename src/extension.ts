@@ -628,9 +628,24 @@ export function activate(context: vscode.ExtensionContext) {
       const emailService = await ensureEmailService();
       if (!emailService) return;
 
+      // 获取默认收件人
+      let defaultTo = '';
+      try {
+        const configManager = emailService.getConfigManager();
+        if (configManager) {
+          const config = configManager.getConfig();
+          if (config?.defaultTo && config.defaultTo.length > 0) {
+            defaultTo = config.defaultTo.map((c: { email: string }) => c.email).join(';');
+          }
+        }
+      } catch {
+        // 忽略配置读取错误
+      }
+
       const to = await vscode.window.showInputBox({
         prompt: '收件人邮箱',
         placeHolder: 'recipient@example.com',
+        value: defaultTo,
         validateInput: (value) => {
           if (!value || value.trim().length === 0) return '收件人不能为空';
           const { result } = parseAndValidateRecipients(value);

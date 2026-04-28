@@ -138,6 +138,80 @@
         <div class="input-hint checkbox-hint">取消勾选可允许自签名证书（不推荐用于生产环境）</div>
       </div>
 
+      <!-- 默认收件人 -->
+      <div class="config-section">
+        <div class="section-header">
+          <span class="section-icon">📥</span>
+          <span class="section-title">默认收件人</span>
+        </div>
+
+        <div class="contacts-list">
+          <div v-for="(contact, index) in defaultTo" :key="contact.id" class="contact-item">
+            <div class="contact-info">
+              <input
+                type="text"
+                v-model="contact.name"
+                placeholder="姓名"
+                class="contact-input contact-name"
+              />
+              <input
+                type="text"
+                v-model="contact.email"
+                placeholder="邮箱地址"
+                class="contact-input contact-email"
+              />
+            </div>
+            <button class="btn-remove-contact" @click="removeDefaultTo(index)" title="删除">
+              ✕
+            </button>
+          </div>
+          <div v-if="defaultTo.length === 0" class="contacts-empty">
+            暂无默认收件人，点击下方按钮添加
+          </div>
+        </div>
+
+        <button class="btn-add-contact" @click="addDefaultTo">
+          + 添加收件人
+        </button>
+      </div>
+
+      <!-- 默认抄送人 -->
+      <div class="config-section">
+        <div class="section-header">
+          <span class="section-icon">📄</span>
+          <span class="section-title">默认抄送人</span>
+        </div>
+
+        <div class="contacts-list">
+          <div v-for="(contact, index) in defaultCc" :key="contact.id" class="contact-item">
+            <div class="contact-info">
+              <input
+                type="text"
+                v-model="contact.name"
+                placeholder="姓名"
+                class="contact-input contact-name"
+              />
+              <input
+                type="text"
+                v-model="contact.email"
+                placeholder="邮箱地址"
+                class="contact-input contact-email"
+              />
+            </div>
+            <button class="btn-remove-contact" @click="removeDefaultCc(index)" title="删除">
+              ✕
+            </button>
+          </div>
+          <div v-if="defaultCc.length === 0" class="contacts-empty">
+            暂无默认抄送人，点击下方按钮添加
+          </div>
+        </div>
+
+        <button class="btn-add-contact" @click="addDefaultCc">
+          + 添加抄送人
+        </button>
+      </div>
+
       <!-- 状态消息 -->
       <div v-if="statusMessage" :class="['status-message', statusType]">
         {{ statusMessage }}
@@ -163,7 +237,14 @@ import { useVscodeApi } from '../composables/useVscodeApi';
 
 const vscode = useVscodeApi();
 
+interface Contact {
+  id: string;
+  name: string;
+  email: string;
+}
+
 interface SMTPConfig {
+  version: string;
   smtp: {
     host: string;
     port: number;
@@ -187,6 +268,7 @@ interface SMTPConfig {
 }
 
 const defaultConfig: SMTPConfig = {
+  version: '1.0.0',
   smtp: {
     host: '',
     port: 25,
@@ -214,6 +296,43 @@ const errors = ref<Record<string, string>>({});
 const isLoading = ref(false);
 const statusMessage = ref('');
 const statusType = ref<'success' | 'error'>('success');
+
+// 默认收件人和抄送人
+const defaultTo = ref<Contact[]>([]);
+const defaultCc = ref<Contact[]>([]);
+
+// 生成唯一ID
+function generateId(): string {
+  return Date.now().toString(36) + Math.random().toString(36).substr(2);
+}
+
+// 添加默认收件人
+function addDefaultTo() {
+  defaultTo.value.push({
+    id: generateId(),
+    name: '',
+    email: '',
+  });
+}
+
+// 删除默认收件人
+function removeDefaultTo(index: number) {
+  defaultTo.value.splice(index, 1);
+}
+
+// 添加默认抄送人
+function addDefaultCc() {
+  defaultCc.value.push({
+    id: generateId(),
+    name: '',
+    email: '',
+  });
+}
+
+// 删除默认抄送人
+function removeDefaultCc(index: number) {
+  defaultCc.value.splice(index, 1);
+}
 
 function validateConfig(): boolean {
   errors.value = {};
@@ -250,13 +369,27 @@ function validateConfig(): boolean {
 function saveConfig() {
   if (!validateConfig()) return;
 
+  console.log('[EmailConfigView] 准备保存配置...');
   isLoading.value = true;
   statusMessage.value = '';
 
+  // 转换为纯 JSON 对象，避免 Vue 响应式对象导致克隆失败
+  const saveData = JSON.parse(JSON.stringify({
+    version: config.value.version,
+    smtp: config.value.smtp,
+    auth: config.value.auth,
+    sender: config.value.sender,
+    connection: config.value.connection,
+    defaultTo: defaultTo.value,
+    defaultCc: defaultCc.value,
+  }));
+  
+  console.log('[EmailConfigView] 发送保存消息:', saveData);
   vscode.postMessage({
     type: 'saveConfig',
-    data: config.value,
+    data: saveData,
   });
+  console.log('[EmailConfigView] 保存消息已发送');
 }
 
 function testConnection() {
@@ -281,9 +414,11 @@ function showStatus(message: string, type: 'success' | 'error') {
 // 监听来自扩展的消息
 window.addEventListener('message', (event) => {
   const message = event.data;
+  console.log('[EmailConfigView] 收到消息:', message);
 
   switch (message.type) {
     case 'configLoaded':
+      console.log('[EmailConfigView] 配置已加载:', message.data);
       if (message.data) {
         config.value = {
           ...defaultConfig,
@@ -309,12 +444,17 @@ window.addEventListener('message', (event) => {
             ...message.data.connection,
           },
         };
+        // 加载默认收件人和抄送人
+        defaultTo.value = message.data.defaultTo || [];
+        defaultCc.value = message.data.defaultCc || [];
       }
       break;
     case 'configSaved':
+      console.log('[EmailConfigView] 配置已保存');
       showStatus('配置已保存', 'success');
       break;
     case 'saveError':
+      console.log('[EmailConfigView] 保存错误:', message.data);
       showStatus(message.data?.message || '保存失败', 'error');
       break;
     case 'testSuccess':
@@ -471,6 +611,98 @@ onMounted(() => {
   margin-bottom: 0;
   cursor: pointer;
   font-size: 13px;
+}
+
+/* 联系人列表 */
+.contacts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.contact-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  background-color: var(--vscode-editor-background);
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 4px;
+}
+
+.contact-info {
+  flex: 1;
+  display: flex;
+  gap: 8px;
+}
+
+.contact-input {
+  padding: 6px 10px;
+  border: 1px solid var(--vscode-input-border);
+  background-color: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  border-radius: 4px;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.contact-input:focus {
+  outline: none;
+  border-color: var(--vscode-focusBorder);
+}
+
+.contact-name {
+  width: 100px;
+  flex-shrink: 0;
+}
+
+.contact-email {
+  flex: 1;
+  min-width: 0;
+}
+
+.btn-remove-contact {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 4px;
+  background-color: transparent;
+  color: var(--vscode-errorForeground);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+}
+
+.btn-remove-contact:hover {
+  background-color: var(--vscode-toolbar-hoverBackground);
+}
+
+.contacts-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--vscode-descriptionForeground);
+  font-size: 13px;
+  background-color: var(--vscode-editor-background);
+  border: 1px dashed var(--vscode-panel-border);
+  border-radius: 4px;
+}
+
+.btn-add-contact {
+  padding: 6px 12px;
+  border: 1px solid var(--vscode-button-secondaryBackground);
+  border-radius: 4px;
+  background-color: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+  cursor: pointer;
+  font-size: 12px;
+  font-family: inherit;
+}
+
+.btn-add-contact:hover {
+  background-color: var(--vscode-button-secondaryHoverBackground);
 }
 
 /* 状态消息 */
