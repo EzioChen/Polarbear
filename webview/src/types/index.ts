@@ -84,6 +84,11 @@ export type WebviewMessageType =
   | 'clearPackCache'
   | 'getReleaseSubject'
   | 'saveReleaseSubject'
+  // 发布说明相关
+  | 'checkReleaseNotesFile'
+  | 'generateReleaseNotes'
+  | 'exportReleaseNotesMarkdown'
+  | 'saveEditedReleaseNotes'
   // 邮件编辑器相关
   | 'sendEmail'
   | 'saveDraft'
@@ -119,6 +124,11 @@ export type ExtensionMessageType =
   | 'packCacheCleared'
   | 'releaseSubjectResult'
   | 'releaseSubjectSaved'
+  // 发布说明相关
+  | 'releaseNotesFileCheckResult'
+  | 'releaseNotesGenerated'
+  | 'releaseNotesExported'
+  | 'releaseNotesSaved'
   // 邮件编辑器相关
   | 'loadDraft'
   | 'attachmentsUpdated'

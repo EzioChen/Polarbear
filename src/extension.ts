@@ -14,10 +14,12 @@ import { ConfigManager } from './emailService/ConfigManager';
 import type { SendEmailOptions } from './emailService/types';
 import { parseAndValidateRecipients, validateSMTPConfig } from './emailService/validators';
 import { PackService } from './packService';
+import { ReleaseNotesService } from './releaseNotesService';
 
 // 全局管理器实例
 let publishFlowManager: PublishFlowManager | undefined;
 let packService: PackService | undefined;
+let releaseNotesService: ReleaseNotesService | undefined;
 
 // 发布主题存储文件路径
 function getReleaseSubjectFilePath(workspacePath: string): string {
@@ -753,6 +755,9 @@ export function activate(context: vscode.ExtensionContext) {
       // 初始化打包服务
       packService = new PackService(workspaceFolder.uri.fsPath);
 
+      // 初始化发布说明服务
+      releaseNotesService = new ReleaseNotesService(workspaceFolder.uri.fsPath);
+
       // 创建 Webview Panel
       const panel = vscode.window.createWebviewPanel(
         'polarbear.publishTimeline',
@@ -943,6 +948,96 @@ export function activate(context: vscode.ExtensionContext) {
                 panel.webview.postMessage({
                   type: 'releaseSubjectSaved',
                   payload: { success: true }
+                });
+              }
+              break;
+
+            case 'checkReleaseNotesFile':
+              // 检查发布说明文件是否存在
+              if (!releaseNotesService) {
+                panel.webview.postMessage({
+                  type: 'releaseNotesFileCheckResult',
+                  payload: { exists: false, error: '发布说明服务未初始化' }
+                });
+                return;
+              }
+              const releaseNotesFileCheck = releaseNotesService.checkFile();
+              panel.webview.postMessage({
+                type: 'releaseNotesFileCheckResult',
+                payload: releaseNotesFileCheck
+              });
+              break;
+
+            case 'generateReleaseNotes':
+              // 生成发布说明文档
+              if (!releaseNotesService) {
+                panel.webview.postMessage({
+                  type: 'releaseNotesGenerated',
+                  payload: { success: false, error: '发布说明服务未初始化' }
+                });
+                return;
+              }
+              try {
+                const customContent = message.payload?.content;
+                const releaseSubject = message.payload?.releaseSubject;
+                const result = releaseNotesService.generateMarkdown(customContent, releaseSubject);
+                panel.webview.postMessage({
+                  type: 'releaseNotesGenerated',
+                  payload: result
+                });
+              } catch (error) {
+                panel.webview.postMessage({
+                  type: 'releaseNotesGenerated',
+                  payload: { success: false, error: (error as Error).message }
+                });
+              }
+              break;
+
+            case 'exportReleaseNotesMarkdown':
+              // 导出 Markdown 文件
+              if (!releaseNotesService) {
+                panel.webview.postMessage({
+                  type: 'releaseNotesExported',
+                  payload: { success: false, error: '发布说明服务未初始化', format: 'md' }
+                });
+                return;
+              }
+              try {
+                const customContent = message.payload?.content;
+                const releaseSubject = message.payload?.releaseSubject;
+                const result = releaseNotesService.exportMarkdown(customContent, releaseSubject);
+                panel.webview.postMessage({
+                  type: 'releaseNotesExported',
+                  payload: { ...result, format: 'md' }
+                });
+              } catch (error) {
+                panel.webview.postMessage({
+                  type: 'releaseNotesExported',
+                  payload: { success: false, error: (error as Error).message, format: 'md' }
+                });
+              }
+              break;
+
+            case 'saveEditedReleaseNotes':
+              // 保存编辑后的发布说明
+              if (!releaseNotesService) {
+                panel.webview.postMessage({
+                  type: 'releaseNotesSaved',
+                  payload: { success: false, error: '发布说明服务未初始化' }
+                });
+                return;
+              }
+              try {
+                const content = message.payload?.content || '';
+                const result = releaseNotesService.saveEditedContent(content);
+                panel.webview.postMessage({
+                  type: 'releaseNotesSaved',
+                  payload: result
+                });
+              } catch (error) {
+                panel.webview.postMessage({
+                  type: 'releaseNotesSaved',
+                  payload: { success: false, error: (error as Error).message }
                 });
               }
               break;

@@ -119,12 +119,78 @@
 
         <!-- 发布说明步骤详情 -->
         <div v-else-if="currentStepData.id === 'release-notes'" class="release-notes-detail">
-          <p>正在整理发布说明内容...</p>
-          <ul class="check-list">
-            <li v-for="item in releaseNotesItems" :key="item.id" :class="{ checked: item.checked }">
-              {{ item.text }}
-            </li>
-          </ul>
+          <!-- 文件检查状态 -->
+          <div v-if="releaseNotesStatus === 'checking'" class="status-message">
+            <p>正在检查发布说明文件...</p>
+          </div>
+
+          <!-- 文件不存在错误 -->
+          <div v-else-if="releaseNotesStatus === 'error'" class="status-message error">
+            <p class="error-text">❌ {{ releaseNotesError }}</p>
+            <p class="hint-text">请先创建发布说明文件后再继续</p>
+          </div>
+
+          <!-- 文档生成和编辑界面 -->
+          <div v-else-if="releaseNotesStatus === 'ready' || releaseNotesStatus === 'editing' || releaseNotesStatus === 'preview'" class="release-notes-editor">
+            <!-- 工具栏 -->
+            <div class="editor-toolbar">
+              <button 
+                class="btn btn-small" 
+                :disabled="!generatedMarkdown"
+                @click="toggleEditMode"
+              >
+                {{ releaseNotesStatus === 'editing' ? '预览' : '编辑' }}
+              </button>
+              <button
+                class="btn btn-small btn-secondary"
+                :disabled="!generatedMarkdown"
+                @click="exportMarkdown"
+              >
+                导出 Markdown
+              </button>
+            </div>
+
+            <!-- 编辑模式 -->
+            <div v-if="releaseNotesStatus === 'editing'" class="editor-container">
+              <textarea
+                v-model="editedMarkdown"
+                class="markdown-editor"
+                placeholder="在此编辑发布说明内容..."
+                :disabled="isProcessing"
+              ></textarea>
+            </div>
+
+            <!-- 预览模式 -->
+            <div v-else class="preview-container">
+              <div class="markdown-preview" v-html="renderedMarkdown"></div>
+            </div>
+
+            <!-- 用户确认区域 -->
+            <div v-if="generatedMarkdown && releaseNotesStatus !== 'editing'" class="confirmation-area">
+              <label class="confirm-checkbox">
+                <input 
+                  type="checkbox" 
+                  v-model="releaseNotesConfirmed"
+                  :disabled="isProcessing"
+                />
+                <span>我已确认发布说明内容正确无误</span>
+              </label>
+            </div>
+
+            <!-- 导出结果提示 -->
+            <div v-if="exportResult.show" class="export-result" :class="exportResult.success ? 'success' : 'error'">
+              <p>{{ exportResult.message }}</p>
+              <p v-if="exportResult.filePath" class="file-path">文件: {{ exportResult.filePath }}</p>
+            </div>
+          </div>
+
+          <!-- 处理中状态 -->
+          <div v-else-if="releaseNotesStatus === 'generating'" class="status-message">
+            <p>正在生成发布说明文档...</p>
+            <div class="progress-bar">
+              <div class="progress-fill indeterminate"></div>
+            </div>
+          </div>
         </div>
 
         <!-- 邮件步骤详情 -->
@@ -147,6 +213,7 @@ import { useVscodeApi } from '../composables/useVscodeApi';
 
 type StepStatus = 'pending' | 'in-progress' | 'completed';
 type PackStatus = 'idle' | 'checking' | 'preparing' | 'packing' | 'completed' | 'error';
+type ReleaseNotesStatus = 'idle' | 'checking' | 'error' | 'ready' | 'editing' | 'preview' | 'generating';
 
 interface Step {
   id: string;
@@ -168,19 +235,37 @@ interface PackResult {
   skippedFiles: string[];
 }
 
+interface ExportResult {
+  show: boolean;
+  success: boolean;
+  message: string;
+  filePath?: string;
+}
+
 const { vscode, onMessage } = useVscodeApi();
 
 // 监听来自 extension 的消息
 onMessage((message) => {
   switch (message.type) {
     case 'releaseSubjectResult':
-      // 加载保存的发布主题
       if (message.payload?.subject) {
         releaseSubject.value = message.payload.subject;
       }
       break;
     case 'releaseSubjectSaved':
       console.log('发布主题已保存');
+      break;
+    case 'releaseNotesFileCheckResult':
+      handleReleaseNotesFileCheckResult(message.payload);
+      break;
+    case 'releaseNotesGenerated':
+      handleReleaseNotesGenerated(message.payload);
+      break;
+    case 'releaseNotesExported':
+      handleReleaseNotesExported(message.payload);
+      break;
+    case 'releaseNotesSaved':
+      handleReleaseNotesSaved(message.payload);
       break;
   }
 });
@@ -216,6 +301,14 @@ const packResult = ref<PackResult>({ zipPath: '', packedFiles: 0, skippedFiles: 
 // 发布主题
 const releaseSubject = ref('');
 
+// 发布说明相关状态
+const releaseNotesStatus = ref<ReleaseNotesStatus>('idle');
+const releaseNotesError = ref('');
+const generatedMarkdown = ref('');
+const editedMarkdown = ref('');
+const releaseNotesConfirmed = ref(false);
+const exportResult = ref<ExportResult>({ show: false, success: false, message: '' });
+
 // 当前日期（yyyyMMdd 格式）
 const currentDate = computed(() => {
   const now = new Date();
@@ -225,12 +318,24 @@ const currentDate = computed(() => {
   return `${year}${month}${day}`;
 });
 
-const releaseNotesItems = ref([
-  { id: '1', text: '版本号确认', checked: false },
-  { id: '2', text: '更新日志整理', checked: false },
-  { id: '3', text: 'SDK 版本信息', checked: false },
-  { id: '4', text: '芯片支持范围', checked: false }
-]);
+// Markdown 渲染（简化版本）
+const renderedMarkdown = computed(() => {
+  if (!generatedMarkdown.value) return '';
+  
+  const content = releaseNotesStatus.value === 'editing' ? editedMarkdown.value : generatedMarkdown.value;
+  
+  // 简单的 Markdown 到 HTML 转换
+  return content
+    .replace(/^# (.*$)/gim, '<h1>$1</h1>')
+    .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+    .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+    .replace(/^\> (.*$)/gim, '<blockquote>$1</blockquote>')
+    .replace(/\*\*(.*)\*\*/gim, '<strong>$1</strong>')
+    .replace(/\*(.*)\*/gim, '<em>$1</em>')
+    .replace(/`([^`]+)`/gim, '<code>$1</code>')
+    .replace(/^\- (.*$)/gim, '<li>$1</li>')
+    .replace(/\n/gim, '<br>');
+});
 
 const emailPreview = ref({
   to: 'team@example.com',
@@ -317,7 +422,6 @@ async function startNextStep() {
     if (pendingIndex >= 0) {
       // 检查是否是打包步骤，且是否填写了发布主题
       if (steps.value[pendingIndex].id === 'pack' && !releaseSubject.value.trim()) {
-        // 显示错误提示
         packStatus.value = 'error';
         packError.value = '请先填写发布主题，再开始打包工程代码资料';
         return;
@@ -424,19 +528,126 @@ async function completePackStep(): Promise<boolean> {
 // ============ 发布说明步骤 ============
 
 async function startReleaseNotesStep(): Promise<void> {
-  // 重置检查项
-  releaseNotesItems.value.forEach(item => item.checked = false);
+  // 重置状态
+  releaseNotesStatus.value = 'checking';
+  releaseNotesError.value = '';
+  generatedMarkdown.value = '';
+  editedMarkdown.value = '';
+  releaseNotesConfirmed.value = false;
+  exportResult.value = { show: false, success: false, message: '' };
 
-  // 模拟检查过程
-  for (let i = 0; i < releaseNotesItems.value.length; i++) {
-    await new Promise(resolve => setTimeout(resolve, 500));
-    releaseNotesItems.value[i].checked = true;
+  // 1. 检查发布说明文件是否存在
+  vscode?.postMessage({ type: 'checkReleaseNotesFile' });
+}
+
+// 处理文件检查结果
+function handleReleaseNotesFileCheckResult(payload: any) {
+  if (!payload.exists) {
+    releaseNotesStatus.value = 'error';
+    releaseNotesError.value = payload.error || '发布说明文件不存在';
+    return;
+  }
+
+  // 文件存在，开始生成文档
+  releaseNotesStatus.value = 'generating';
+  vscode?.postMessage({ 
+    type: 'generateReleaseNotes',
+    payload: { releaseSubject: releaseSubject.value }
+  });
+}
+
+// 处理文档生成结果
+function handleReleaseNotesGenerated(payload: any) {
+  if (!payload.success) {
+    releaseNotesStatus.value = 'error';
+    releaseNotesError.value = payload.error || '生成发布说明文档失败';
+    return;
+  }
+
+  generatedMarkdown.value = payload.markdown || '';
+  editedMarkdown.value = payload.markdown || '';
+  releaseNotesStatus.value = 'preview';
+}
+
+// 切换编辑/预览模式
+function toggleEditMode() {
+  if (releaseNotesStatus.value === 'editing') {
+    // 保存编辑内容并切换到预览
+    generatedMarkdown.value = editedMarkdown.value;
+    releaseNotesStatus.value = 'preview';
+  } else {
+    // 切换到编辑模式
+    editedMarkdown.value = generatedMarkdown.value;
+    releaseNotesStatus.value = 'editing';
+  }
+}
+
+// 导出 Markdown
+function exportMarkdown() {
+  const content = releaseNotesStatus.value === 'editing' ? editedMarkdown.value : generatedMarkdown.value;
+  vscode?.postMessage({
+    type: 'exportReleaseNotesMarkdown',
+    payload: { content, releaseSubject: releaseSubject.value }
+  });
+}
+
+// 处理导出结果
+function handleReleaseNotesExported(payload: any) {
+  exportResult.value = {
+    show: true,
+    success: payload.success,
+    message: payload.success
+      ? '导出 Markdown 成功！' 
+      : `导出失败: ${payload.error}`,
+    filePath: payload.filePath
+  };
+
+  // 3秒后隐藏导出结果
+  setTimeout(() => {
+    exportResult.value.show = false;
+  }, 5000);
+}
+
+// 保存编辑后的内容
+function saveEditedReleaseNotes() {
+  const content = editedMarkdown.value;
+  vscode?.postMessage({
+    type: 'saveEditedReleaseNotes',
+    payload: { content }
+  });
+}
+
+// 处理保存结果
+function handleReleaseNotesSaved(payload: any) {
+  if (payload.success) {
+    console.log('发布说明已保存');
+  } else {
+    console.error('保存失败:', payload.error);
   }
 }
 
 async function completeReleaseNotesStep(): Promise<boolean> {
-  // 检查所有项是否都已勾选
-  return releaseNotesItems.value.every(item => item.checked);
+  // 如果有编辑内容，先保存
+  if (releaseNotesStatus.value === 'editing') {
+    saveEditedReleaseNotes();
+  }
+
+  // 检查用户是否已确认
+  if (!releaseNotesConfirmed.value) {
+    // 显示提示，要求用户确认
+    exportResult.value = {
+      show: true,
+      success: false,
+      message: '请先确认发布说明内容正确无误（勾选确认框）'
+    };
+    setTimeout(() => {
+      exportResult.value.show = false;
+    }, 3000);
+    return false;
+  }
+
+  // 检查是否有生成内容
+  return generatedMarkdown.value.length > 0;
 }
 
 // ============ 邮件步骤 ============
@@ -492,7 +703,13 @@ function cancelTimeline() {
   packProgress.value = 0;
   packError.value = '';
   packResult.value = { zipPath: '', packedFiles: 0, skippedFiles: [] };
-  releaseNotesItems.value.forEach(item => item.checked = false);
+  
+  // 重置发布说明状态
+  releaseNotesStatus.value = 'idle';
+  releaseNotesError.value = '';
+  generatedMarkdown.value = '';
+  editedMarkdown.value = '';
+  releaseNotesConfirmed.value = false;
 }
 
 onMounted(() => {
@@ -727,16 +944,21 @@ onMounted(() => {
   color: var(--vscode-button-secondaryForeground);
 }
 
-.btn-secondary:hover {
+.btn-secondary:hover:not(:disabled) {
   background: var(--vscode-button-secondaryHoverBackground);
 }
 
+.btn-small {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
 .step-detail-panel {
-  margin-top: 24px;
-  padding: 20px;
-  background: var(--vscode-editor-background);
-  border: 1px solid var(--vscode-panel-border);
+  margin-top: 32px;
+  padding: 24px;
+  background: var(--vscode-editor-inactiveSelectionBackground);
   border-radius: 8px;
+  border: 1px solid var(--vscode-panel-border);
 }
 
 .step-detail-panel h3 {
@@ -745,28 +967,27 @@ onMounted(() => {
   color: var(--vscode-foreground);
 }
 
-.pack-detail {
+.detail-content {
+  font-size: 14px;
   color: var(--vscode-foreground);
 }
 
 .pack-status {
-  margin-bottom: 16px;
+  padding: 16px;
 }
 
 .pack-status.error {
   color: var(--vscode-errorForeground);
 }
 
-.pack-preview {
-  background: var(--vscode-editor-inactiveSelectionBackground);
-  padding: 12px;
-  border-radius: 4px;
-  margin-top: 12px;
+.error-text {
+  color: var(--vscode-errorForeground);
+  font-weight: 500;
 }
 
-.pack-preview p {
-  margin: 4px 0;
-  font-size: 13px;
+.success-text {
+  color: var(--vscode-testing-iconPassed);
+  font-weight: 500;
 }
 
 .progress-bar {
@@ -780,98 +1001,242 @@ onMounted(() => {
 
 .progress-fill {
   height: 100%;
-  background: var(--vscode-testing-iconPassed);
+  background: var(--vscode-progressBar-foreground);
+  border-radius: 4px;
   transition: width 0.3s ease;
+}
+
+.progress-fill.indeterminate {
+  width: 30%;
+  animation: indeterminate 1s infinite linear;
+}
+
+@keyframes indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
 }
 
 .progress-text {
   text-align: center;
   font-size: 14px;
-  color: var(--vscode-descriptionForeground);
-  margin: 8px 0 0 0;
+  color: var(--vscode-foreground);
+}
+
+.pack-preview {
+  margin-top: 16px;
+  padding: 16px;
+  background: var(--vscode-editor-background);
+  border-radius: 4px;
+}
+
+.pack-preview p {
+  margin: 8px 0;
 }
 
 .pack-result {
   margin-top: 16px;
-  padding: 12px;
-  background: var(--vscode-editor-inactiveSelectionBackground);
+  padding: 16px;
+  background: var(--vscode-editor-background);
   border-radius: 4px;
-}
-
-.success-text {
-  color: var(--vscode-testing-iconPassed);
-  font-weight: 600;
-  margin: 0 0 8px 0;
-}
-
-.error-text {
-  color: var(--vscode-errorForeground);
-  margin: 0;
+  border-left: 4px solid var(--vscode-testing-iconPassed);
 }
 
 .zip-path {
+  font-family: monospace;
   font-size: 12px;
   color: var(--vscode-descriptionForeground);
-  margin: 4px 0;
   word-break: break-all;
 }
 
 .pack-stats {
   font-size: 13px;
   color: var(--vscode-foreground);
-  margin: 8px 0 0 0;
 }
 
-.check-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
+/* 发布说明样式 */
+.release-notes-detail {
+  padding: 16px 0;
 }
 
-.check-list li {
-  padding: 8px 0;
-  padding-left: 28px;
-  position: relative;
+.status-message {
+  padding: 24px;
+  text-align: center;
   color: var(--vscode-foreground);
-  transition: all 0.3s ease;
 }
 
-.check-list li::before {
-  content: '○';
-  position: absolute;
-  left: 0;
+.status-message.error {
+  color: var(--vscode-errorForeground);
+}
+
+.status-message .hint-text {
   color: var(--vscode-descriptionForeground);
+  font-size: 13px;
+  margin-top: 8px;
 }
 
-.check-list li.checked::before {
-  content: '✓';
-  color: var(--vscode-testing-iconPassed);
+.release-notes-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
-.check-list li.checked {
-  color: var(--vscode-descriptionForeground);
-  text-decoration: line-through;
+.editor-toolbar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--vscode-panel-border);
 }
 
-.email-preview {
-  background: var(--vscode-editor-background);
-  border: 1px solid var(--vscode-panel-border);
-  border-radius: 4px;
+.editor-container {
+  flex: 1;
+}
+
+.markdown-editor {
+  width: 100%;
+  min-height: 400px;
   padding: 16px;
+  font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  border: 1px solid var(--vscode-input-border);
+  border-radius: 4px;
+  background: var(--vscode-editor-background);
+  color: var(--vscode-editor-foreground);
+  resize: vertical;
+  box-sizing: border-box;
 }
 
-.email-field {
-  margin-bottom: 12px;
+.markdown-editor:focus {
+  outline: none;
+  border-color: var(--vscode-focusBorder);
+}
+
+.preview-container {
+  flex: 1;
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.markdown-preview {
+  padding: 24px;
+  background: var(--vscode-editor-background);
+  border-radius: 4px;
+  line-height: 1.6;
+}
+
+.markdown-preview :deep(h1) {
+  font-size: 24px;
+  font-weight: 600;
+  margin: 0 0 16px 0;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--vscode-panel-border);
+  color: var(--vscode-foreground);
+}
+
+.markdown-preview :deep(h2) {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 24px 0 12px 0;
+  color: var(--vscode-foreground);
+}
+
+.markdown-preview :deep(h3) {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 16px 0 8px 0;
+  color: var(--vscode-foreground);
+}
+
+.markdown-preview :deep(blockquote) {
+  margin: 16px 0;
+  padding: 12px 16px;
+  border-left: 4px solid var(--vscode-textBlockQuote-border);
+  background: var(--vscode-textBlockQuote-background);
+  color: var(--vscode-foreground);
+}
+
+.markdown-preview :deep(code) {
+  padding: 2px 6px;
+  background: var(--vscode-textCodeBlock-background);
+  border-radius: 3px;
+  font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+  font-size: 12px;
+}
+
+.markdown-preview :deep(strong) {
+  font-weight: 600;
+  color: var(--vscode-foreground);
+}
+
+.markdown-preview :deep(em) {
+  font-style: italic;
+  color: var(--vscode-foreground);
+}
+
+.markdown-preview :deep(li) {
+  margin: 8px 0;
+  padding-left: 8px;
+}
+
+.confirmation-area {
+  padding: 16px;
+  background: var(--vscode-editor-inactiveSelectionBackground);
+  border-radius: 4px;
+  border: 1px solid var(--vscode-panel-border);
+}
+
+.confirm-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
   font-size: 14px;
   color: var(--vscode-foreground);
 }
 
-.email-field:last-child {
-  margin-bottom: 0;
+.confirm-checkbox input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
 }
 
-.email-field strong {
-  color: var(--vscode-descriptionForeground);
-  margin-right: 8px;
+.export-result {
+  padding: 12px 16px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.export-result.success {
+  background: var(--vscode-testing-iconPassed);
+  color: white;
+}
+
+.export-result.error {
+  background: var(--vscode-errorForeground);
+  color: white;
+}
+
+.export-result .file-path {
+  margin-top: 8px;
+  font-family: monospace;
+  font-size: 11px;
+  opacity: 0.9;
+}
+
+.email-detail {
+  padding: 16px;
+}
+
+.email-preview {
+  margin-top: 16px;
+  padding: 16px;
+  background: var(--vscode-editor-background);
+  border-radius: 4px;
+}
+
+.email-field {
+  margin: 8px 0;
+  line-height: 1.5;
 }
 </style>
