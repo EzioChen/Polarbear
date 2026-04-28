@@ -1213,7 +1213,7 @@ export function activate(context: vscode.ExtensionContext) {
               break;
 
             case 'testEmailConnection':
-              // 测试邮箱连接
+              // 测试邮箱连接，使用 vscode toast 提示
               {
                 try {
                   const emailService = EmailService.getInstance();
@@ -1225,28 +1225,26 @@ export function activate(context: vscode.ExtensionContext) {
                   }
 
                   const result = await emailService.testConnection();
-                  // 清理错误对象，移除不可克隆的 originalError
-                  const safeError = result.error ? {
-                    code: result.error.code,
-                    message: result.error.message,
-                    details: result.error.details
-                  } : undefined;
+                  if (result.success) {
+                    vscode.window.showInformationMessage(`✅ 邮箱服务连接成功！响应时间: ${result.responseTime}ms`);
+                  } else {
+                    vscode.window.showErrorMessage(`❌ 邮箱连接失败: ${result.error?.message || '未知错误'}`);
+                  }
+                  // 仍然发送消息给 webview，但不显示 UI
                   panel.webview.postMessage({
                     type: 'emailConnectionTestResult',
                     payload: {
                       success: result.success,
-                      message: result.success
-                        ? `✅ 邮箱服务连接成功！响应时间: ${result.responseTime}ms`
-                        : `❌ 连接失败: ${safeError?.message || '未知错误'}`,
-                      error: safeError
+                      message: result.success ? '连接成功' : '连接失败'
                     }
                   });
                 } catch (error) {
+                  vscode.window.showErrorMessage(`❌ 邮箱测试失败: ${(error as Error).message}`);
                   panel.webview.postMessage({
                     type: 'emailConnectionTestResult',
                     payload: {
                       success: false,
-                      message: `❌ 测试失败: ${(error as Error).message}`
+                      message: '测试失败'
                     }
                   });
                 }
@@ -1363,6 +1361,19 @@ export function activate(context: vscode.ExtensionContext) {
                       payload: { success: false, message: errorMsg }
                     });
                   }
+                }
+              }
+              break;
+
+            case 'openAttachmentFolder':
+              // 打开附件所在文件夹
+              {
+                const filePath = message.payload?.filePath;
+                if (filePath) {
+                  const folderUri = vscode.Uri.file(require('path').dirname(filePath));
+                  const fileUri = vscode.Uri.file(filePath);
+                  // 在文件资源管理器中显示文件
+                  vscode.commands.executeCommand('revealFileInOS', fileUri);
                 }
               }
               break;

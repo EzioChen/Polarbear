@@ -105,7 +105,9 @@ export type WebviewMessageType =
   | 'prepareEmailData'
   | 'openEmailEditor'
   | 'saveEmailDraft'
-  | 'testEmailConnection';
+  | 'testEmailConnection'
+  // 附件相关
+  | 'openAttachmentFolder';
 
 export interface WebviewMessage {
   type: WebviewMessageType;

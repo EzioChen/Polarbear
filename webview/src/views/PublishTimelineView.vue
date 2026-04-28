@@ -17,21 +17,32 @@
         格式建议：项目名称_平台_版本号_类型
         <span v-if="releaseSubject">（最终文件名：{{ releaseSubject }}_{{ currentDate }}.zip）</span>
       </p>
+      <!-- 开始按钮 -->
+      <div class="start-action-bar" v-if="!isProcessing && !allCompleted && steps.every(s => s.status === 'pending')">
+        <button
+          class="btn btn-primary"
+          :disabled="!releaseSubject.trim()"
+          @click="startPublishFlow"
+        >
+          🚀 开始发布
+        </button>
+      </div>
     </div>
 
-    <div class="timeline">
+    <!-- 横向时间轴（包含状态） -->
+    <div class="horizontal-timeline">
       <div
         v-for="(step, index) in steps"
         :key="step.id"
-        class="timeline-item"
+        class="timeline-step"
         :class="{
           'completed': step.status === 'completed',
           'in-progress': step.status === 'in-progress',
           'pending': step.status === 'pending'
         }"
       >
-        <div class="timeline-marker">
-          <div class="marker-circle">
+        <div class="step-marker-wrapper">
+          <div class="step-marker">
             <svg v-if="step.status === 'completed'" class="check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
             </svg>
@@ -49,13 +60,13 @@
             </svg>
             <span v-else class="step-number">{{ index + 1 }}</span>
           </div>
-          <div v-if="index < steps.length - 1" class="timeline-line" :class="{ 'active': step.status === 'completed' }"></div>
+          <!-- 连接线：位于圆点右侧，连接下一个步骤 -->
+          <div v-if="index < steps.length - 1" class="step-connector" :class="{ 'active': step.status === 'completed' }"></div>
         </div>
-
-        <div class="timeline-content">
+        <div class="step-info">
           <h3 class="step-title">{{ step.title }}</h3>
           <p class="step-description">{{ step.description }}</p>
-          <div class="step-status">
+          <div class="step-status-info">
             <span class="status-badge" :class="step.status">
               {{ getStatusText(step.status) }}
             </span>
@@ -65,23 +76,6 @@
           </div>
         </div>
       </div>
-    </div>
-
-    <div class="action-bar">
-      <button
-        class="btn btn-primary"
-        :disabled="allCompleted || isProcessing"
-        @click="startNextStep"
-      >
-        {{ getActionButtonText() }}
-      </button>
-      <button
-        class="btn btn-secondary"
-        :disabled="isProcessing"
-        @click="cancelTimeline"
-      >
-        取消
-      </button>
     </div>
 
     <div v-if="currentStepData" class="step-detail-panel">
@@ -163,18 +157,16 @@
             <!-- 预览模式 -->
             <div v-else class="preview-container">
               <div class="markdown-preview" v-html="renderedMarkdown"></div>
-            </div>
-
-            <!-- 用户确认区域 -->
-            <div v-if="generatedMarkdown && releaseNotesStatus !== 'editing'" class="confirmation-area">
-              <label class="confirm-checkbox">
-                <input 
-                  type="checkbox" 
-                  v-model="releaseNotesConfirmed"
+              <!-- 确认按钮 -->
+              <div class="preview-actions">
+                <button
+                  class="btn btn-primary"
                   :disabled="isProcessing"
-                />
-                <span>我已确认发布说明内容正确无误</span>
-              </label>
+                  @click="confirmReleaseNotes"
+                >
+                  ✓ 确认并继续
+                </button>
+              </div>
             </div>
 
             <!-- 导出结果提示 -->
@@ -216,17 +208,6 @@
             正在准备邮件数据...
           </div>
 
-          <!-- 连接测试状态 -->
-          <div v-else-if="emailPreEditStatus === 'ready' && !emailConnectionTested" class="status-message info">
-            <span class="loading-spinner"></span>
-            正在测试邮箱服务连接...
-          </div>
-
-          <!-- 连接测试结果 -->
-          <div v-else-if="emailConnectionResult" class="connection-result" :class="emailConnectionResult.success ? 'success' : 'error'">
-            <p>{{ emailConnectionResult.message }}</p>
-          </div>
-
           <!-- 错误状态 -->
           <div v-else-if="emailPreEditStatus === 'error'" class="status-message error">
             <p>❌ {{ emailPreEditError }}</p>
@@ -234,7 +215,7 @@
           </div>
 
           <!-- 邮件编辑和预览 -->
-          <div v-if="emailPreEditStatus === 'ready' && emailConnectionTested && emailConnectionResult?.success" class="email-editor-container">
+          <div v-if="emailPreEditStatus === 'ready'" class="email-editor-container">
             <!-- 头部信息区 -->
             <div class="email-header-section">
               <div class="email-field-row">
@@ -290,7 +271,13 @@
             <div class="email-attachments-bar" v-if="emailPreview.attachments.length > 0">
               <span class="attachments-label">附件:</span>
               <div class="attachment-chips">
-                <div v-for="att in emailPreview.attachments" :key="att.id" class="attachment-chip">
+                <div
+                  v-for="att in emailPreview.attachments"
+                  :key="att.id"
+                  class="attachment-chip"
+                  @click="openAttachmentFolder(att.path)"
+                  title="点击打开附件所在文件夹"
+                >
                   <span class="attachment-icon">📎</span>
                   <span class="attachment-name">{{ att.filename }}</span>
                   <span class="attachment-size">({{ formatFileSize(att.size) }})</span>
@@ -305,9 +292,6 @@
               </button>
               <button class="btn btn-secondary" @click="saveEmailDraft" :disabled="isSendingEmail">
                 💾 保存草稿
-              </button>
-              <button class="btn btn-secondary" @click="cancelEmailEdit" :disabled="isSendingEmail">
-                ❌ 取消
               </button>
             </div>
           </div>
@@ -536,8 +520,6 @@ const emailPreEditStatus = ref<EmailPreEditStatus>('idle');
 const emailStepStatus = ref<EmailStepStatus>('pending');
 const emailPreEditError = ref('');
 const emailConfigChecked = ref(false);
-const emailConnectionTested = ref(false);
-const emailConnectionResult = ref<{ success: boolean; message: string } | null>(null);
 const isSendingEmail = ref(false);
 const emailTextareaRef = ref<HTMLTextAreaElement | null>(null);
 
@@ -584,75 +566,27 @@ function formatFileSize(bytes: number): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
-function getActionButtonText(): string {
-  if (isProcessing.value) {
-    return '处理中...';
+// 开始发布流程（点击开始按钮后）
+async function startPublishFlow() {
+  // 检查是否所有步骤都是待处理状态（首次开始）
+  const allPending = steps.value.every(s => s.status === 'pending');
+  if (!allPending) return;
+
+  // 检查是否填写了发布主题
+  if (!releaseSubject.value.trim()) {
+    packStatus.value = 'error';
+    packError.value = '请先填写发布主题，再开始打包工程代码资料';
+    return;
   }
-  if (allCompleted.value) {
-    return '全部完成';
+
+  // 开始第一个步骤（打包）
+  isProcessing.value = true;
+  const packStep = steps.value.find(s => s.id === 'pack');
+  if (packStep) {
+    packStep.status = 'in-progress';
+    await startStep('pack');
   }
-  const currentIndex = steps.value.findIndex(s => s.status === 'in-progress');
-  if (currentIndex >= 0) {
-    return '完成当前步骤';
-  }
-  const nextPending = steps.value.findIndex(s => s.status === 'pending');
-  if (nextPending >= 0) {
-    return `开始: ${steps.value[nextPending].title}`;
-  }
-  return '开始发布';
-}
-
-async function startNextStep() {
-  const currentIndex = steps.value.findIndex(s => s.status === 'in-progress');
-
-  if (currentIndex >= 0) {
-    isProcessing.value = true;
-
-    // 完成当前步骤
-    const completed = await completeCurrentStep(steps.value[currentIndex].id);
-
-    if (completed) {
-      steps.value[currentIndex].status = 'completed';
-      steps.value[currentIndex].timestamp = new Date();
-
-      // 启动下一步
-      if (currentIndex < steps.value.length - 1) {
-        steps.value[currentIndex + 1].status = 'in-progress';
-        await startStep(steps.value[currentIndex + 1].id);
-      }
-    }
-
-    isProcessing.value = false;
-  } else {
-    // 开始第一个待处理的步骤
-    const pendingIndex = steps.value.findIndex(s => s.status === 'pending');
-    if (pendingIndex >= 0) {
-      // 检查是否是打包步骤，且是否填写了发布主题
-      if (steps.value[pendingIndex].id === 'pack' && !releaseSubject.value.trim()) {
-        packStatus.value = 'error';
-        packError.value = '请先填写发布主题，再开始打包工程代码资料';
-        return;
-      }
-
-      isProcessing.value = true;
-      steps.value[pendingIndex].status = 'in-progress';
-      await startStep(steps.value[pendingIndex].id);
-      isProcessing.value = false;
-    }
-  }
-}
-
-async function completeCurrentStep(stepId: string): Promise<boolean> {
-  switch (stepId) {
-    case 'pack':
-      return await completePackStep();
-    case 'release-notes':
-      return await completeReleaseNotesStep();
-    case 'email':
-      return await completeEmailStep();
-    default:
-      return true;
-  }
+  isProcessing.value = false;
 }
 
 async function startStep(stepId: string): Promise<void> {
@@ -721,15 +655,24 @@ async function startPackStep(): Promise<void> {
       packedFiles: packResult_msg.payload.packedFiles,
       skippedFiles: packResult_msg.payload.skippedFiles || []
     };
+
+    // 打包完成，自动进入下一步
+    const packStep = steps.value.find(s => s.id === 'pack');
+    if (packStep) {
+      packStep.status = 'completed';
+      packStep.timestamp = new Date();
+    }
+
+    // 自动启动下一步（发布说明步骤）
+    const releaseNotesStep = steps.value.find(s => s.id === 'release-notes');
+    if (releaseNotesStep && releaseNotesStep.status === 'pending') {
+      releaseNotesStep.status = 'in-progress';
+      await startStep('release-notes');
+    }
   } else {
     packStatus.value = 'error';
     packError.value = packResult_msg.payload.error || '打包失败';
   }
-}
-
-async function completePackStep(): Promise<boolean> {
-  // 检查打包是否成功完成
-  return packStatus.value === 'completed';
 }
 
 // ============ 发布说明步骤 ============
@@ -774,6 +717,26 @@ function handleReleaseNotesGenerated(payload: any) {
   generatedMarkdown.value = payload.markdown || '';
   editedMarkdown.value = payload.markdown || '';
   releaseNotesStatus.value = 'preview';
+  // 等待用户点击确认按钮
+}
+
+// 确认发布说明并继续
+async function confirmReleaseNotes() {
+  releaseNotesConfirmed.value = true;
+
+  // 完成发布说明步骤
+  const releaseNotesStep = steps.value.find(s => s.id === 'release-notes');
+  if (releaseNotesStep) {
+    releaseNotesStep.status = 'completed';
+    releaseNotesStep.timestamp = new Date();
+  }
+
+  // 启动下一步（邮件步骤）
+  const emailStep = steps.value.find(s => s.id === 'email');
+  if (emailStep && emailStep.status === 'pending') {
+    emailStep.status = 'in-progress';
+    await startStep('email');
+  }
 }
 
 // 切换编辑/预览模式
@@ -815,15 +778,6 @@ function handleReleaseNotesExported(payload: any) {
   }, 5000);
 }
 
-// 保存编辑后的内容
-function saveEditedReleaseNotes() {
-  const content = editedMarkdown.value;
-  vscode?.postMessage({
-    type: 'saveEditedReleaseNotes',
-    payload: { content }
-  });
-}
-
 // 处理保存结果
 function handleReleaseNotesSaved(payload: any) {
   if (payload.success) {
@@ -833,30 +787,6 @@ function handleReleaseNotesSaved(payload: any) {
   }
 }
 
-async function completeReleaseNotesStep(): Promise<boolean> {
-  // 如果有编辑内容，先保存
-  if (releaseNotesStatus.value === 'editing') {
-    saveEditedReleaseNotes();
-  }
-
-  // 检查用户是否已确认
-  if (!releaseNotesConfirmed.value) {
-    // 显示提示，要求用户确认
-    exportResult.value = {
-      show: true,
-      success: false,
-      message: '请先确认发布说明内容正确无误（勾选确认框）'
-    };
-    setTimeout(() => {
-      exportResult.value.show = false;
-    }, 3000);
-    return false;
-  }
-
-  // 检查是否有生成内容
-  return generatedMarkdown.value.length > 0;
-}
-
 // ============ 邮件步骤 ============
 
 async function startEmailStep(): Promise<void> {
@@ -864,17 +794,10 @@ async function startEmailStep(): Promise<void> {
   await startEmailPreEdit();
 }
 
-async function completeEmailStep(): Promise<boolean> {
-  // 邮件步骤需要用户完成邮件发送
-  return emailPreEditStatus.value === 'ready' && emailConnectionTested.value && (emailConnectionResult.value?.success ?? false);
-}
-
 // 开始邮件预编辑流程
 async function startEmailPreEdit(): Promise<void> {
   emailPreEditStatus.value = 'checking-config';
   emailConfigChecked.value = false;
-  emailConnectionTested.value = false;
-  emailConnectionResult.value = null;
 
   // 1. 检查邮件配置
   vscode?.postMessage({ type: 'checkEmailConfig' });
@@ -918,16 +841,8 @@ async function startEmailPreEdit(): Promise<void> {
 
   emailPreEditStatus.value = 'ready';
 
-  // 3. 测试邮箱连接
+  // 3. 测试邮箱连接（使用 vscode toast 提示，不等待结果）
   vscode?.postMessage({ type: 'testEmailConnection' });
-
-  // 等待连接测试结果
-  const connectionResult = await waitForMessage('emailConnectionTestResult');
-  emailConnectionTested.value = true;
-  emailConnectionResult.value = {
-    success: connectionResult.payload?.success || false,
-    message: connectionResult.payload?.message || ''
-  };
 }
 
 // 重试邮件预编辑
@@ -1000,19 +915,16 @@ function saveEmailDraft(): void {
   alert('草稿已保存');
 }
 
-// 取消邮件编辑
-function cancelEmailEdit(): void {
-  if (confirm('确定要取消编辑吗？未保存的内容将丢失。')) {
-    // 重置邮件编辑状态
-    emailPreEditStatus.value = 'idle';
-    emailPreview.value = {
-      to: '',
-      cc: '',
-      subject: '',
-      body: '',
-      attachments: []
-    };
+// 打开附件所在文件夹
+function openAttachmentFolder(filePath: string): void {
+  if (!filePath) {
+    alert('附件路径无效');
+    return;
   }
+  vscode?.postMessage({
+    type: 'openAttachmentFolder',
+    payload: { filePath }
+  });
 }
 
 // 处理邮件配置检查结果
@@ -1039,13 +951,10 @@ function handleEmailDataPrepared(payload: any): void {
   }
 }
 
-// 处理邮箱连接测试结果
-function handleEmailConnectionTestResult(payload: any): void {
-  emailConnectionTested.value = true;
-  emailConnectionResult.value = {
-    success: payload?.success || false,
-    message: payload?.message || ''
-  };
+// 处理邮箱连接测试结果（现在使用 vscode toast 提示，这里仅标记状态）
+function handleEmailConnectionTestResult(_payload: any): void {
+  // 连接测试结果已通过 vscode toast 显示，这里只需继续流程
+  // 如果连接失败，不阻止用户继续编辑邮件
 }
 
 // ============ 工具函数 ============
@@ -1067,7 +976,7 @@ function waitForMessage(expectedType: string, filter?: (payload: any) => boolean
   });
 }
 
-function saveSubject() {
+async function saveSubject() {
   // 保存发布主题到后端
   vscode?.postMessage({
     type: 'saveReleaseSubject',
@@ -1075,28 +984,7 @@ function saveSubject() {
   });
 }
 
-function cancelTimeline() {
-  // 清除打包缓存
-  vscode?.postMessage({ type: 'clearPackCache' });
 
-  // 重置所有状态
-  steps.value.forEach(step => {
-    step.status = 'pending';
-    step.timestamp = undefined;
-  });
-
-  packStatus.value = 'idle';
-  packProgress.value = 0;
-  packError.value = '';
-  packResult.value = { zipPath: '', packedFiles: 0, skippedFiles: [] };
-  
-  // 重置发布说明状态
-  releaseNotesStatus.value = 'idle';
-  releaseNotesError.value = '';
-  generatedMarkdown.value = '';
-  editedMarkdown.value = '';
-  releaseNotesConfirmed.value = false;
-}
 
 onMounted(() => {
   // 从后端获取状态
@@ -1164,6 +1052,14 @@ onMounted(() => {
   color: var(--vscode-descriptionForeground);
 }
 
+.start-action-bar {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--vscode-panel-border);
+  display: flex;
+  justify-content: flex-start;
+}
+
 .page-title {
   font-size: 24px;
   font-weight: 600;
@@ -1171,27 +1067,37 @@ onMounted(() => {
   color: var(--vscode-foreground);
 }
 
-.timeline {
+/* ========== 横向时间轴 ========== */
+.horizontal-timeline {
   display: flex;
-  flex-direction: column;
-  gap: 0;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 24px 16px;
+  background: var(--vscode-editor-background);
+  border-radius: 8px;
+  border: 1px solid var(--vscode-panel-border);
+  margin-bottom: 16px;
 }
 
-.timeline-item {
-  display: flex;
-  gap: 16px;
-  padding: 16px 0;
-  position: relative;
-}
-
-.timeline-marker {
+.timeline-step {
+  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
+  text-align: center;
+  position: relative;
+  padding: 0 8px;
+}
+
+.step-marker-wrapper {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
   position: relative;
 }
 
-.marker-circle {
+.step-marker {
   width: 40px;
   height: 40px;
   border-radius: 50%;
@@ -1203,58 +1109,63 @@ onMounted(() => {
   font-weight: 600;
   font-size: 14px;
   transition: all 0.3s ease;
+  flex-shrink: 0;
   z-index: 1;
 }
 
-.timeline-item.completed .marker-circle {
+.timeline-step.completed .step-marker {
   background: var(--vscode-testing-iconPassed);
   color: white;
 }
 
-.timeline-item.in-progress .marker-circle {
+.timeline-step.in-progress .step-marker {
   background: var(--vscode-progressBar-background);
   color: white;
 }
 
-.timeline-line {
-  width: 2px;
-  flex: 1;
+.step-connector {
+  position: absolute;
+  top: 50%;
+  left: calc(50% + 20px);
+  width: calc(100% - 40px);
+  height: 2px;
   background: var(--vscode-badge-background);
-  margin-top: 8px;
-  min-height: 60px;
+  transform: translateY(-50%);
   transition: all 0.3s ease;
+  z-index: 0;
 }
 
-.timeline-line.active {
+.step-connector.active {
   background: var(--vscode-testing-iconPassed);
 }
 
-.timeline-content {
-  flex: 1;
-  padding-top: 8px;
+.step-info {
+  margin-top: 12px;
 }
 
-.step-title {
-  font-size: 16px;
+.step-info .step-title {
+  font-size: 14px;
   font-weight: 600;
-  margin: 0 0 8px 0;
+  margin: 0 0 4px 0;
   color: var(--vscode-foreground);
 }
 
-.step-description {
-  font-size: 13px;
+.step-info .step-description {
+  font-size: 12px;
   color: var(--vscode-descriptionForeground);
-  margin: 0 0 12px 0;
-  line-height: 1.5;
+  margin: 0 0 8px 0;
+  line-height: 1.4;
 }
 
-.step-status {
+.step-status-info {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: 4px;
+  margin-top: 8px;
 }
 
-.status-badge {
+.step-status-info .status-badge {
   display: inline-flex;
   align-items: center;
   padding: 4px 10px;
@@ -1263,24 +1174,35 @@ onMounted(() => {
   font-weight: 500;
 }
 
-.status-badge.pending {
+.step-status-info .status-badge.pending {
   background: var(--vscode-badge-background);
   color: var(--vscode-badge-foreground);
 }
 
-.status-badge.in-progress {
+.step-status-info .status-badge.in-progress {
   background: var(--vscode-progressBar-background);
   color: white;
 }
 
-.status-badge.completed {
+.step-status-info .status-badge.completed {
   background: var(--vscode-testing-iconPassed);
   color: white;
 }
 
-.timestamp {
-  font-size: 12px;
+.step-status-info .timestamp {
+  font-size: 11px;
   color: var(--vscode-descriptionForeground);
+}
+
+/* 旧状态栏样式（保留兼容） */
+.status-bar {
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--vscode-editor-inactiveSelectionBackground);
+  border-radius: 8px;
+  border: 1px solid var(--vscode-panel-border);
+  margin-bottom: 24px;
 }
 
 .check-icon {
@@ -1291,6 +1213,13 @@ onMounted(() => {
 .loading-icon {
   width: 20px;
   height: 20px;
+}
+
+/* 旧样式保留兼容 */
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
 }
 
 .action-bar {
@@ -1502,6 +1431,8 @@ onMounted(() => {
   flex: 1;
   max-height: 500px;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 
 .markdown-preview {
@@ -1509,6 +1440,17 @@ onMounted(() => {
   background: var(--vscode-editor-background);
   border-radius: 4px;
   line-height: 1.6;
+  flex: 1;
+}
+
+.preview-actions {
+  display: flex;
+  justify-content: center;
+  padding: 16px;
+  background: var(--vscode-editor-inactiveSelectionBackground);
+  border-top: 1px solid var(--vscode-panel-border);
+  margin-top: 16px;
+  border-radius: 4px;
 }
 
 .markdown-preview :deep(h1) {
@@ -1821,25 +1763,6 @@ onMounted(() => {
   justify-content: center;
   padding-top: 20px;
   border-top: 1px solid var(--vscode-panel-border);
-}
-
-/* 连接测试结果 */
-.connection-result {
-  padding: 16px;
-  border-radius: 6px;
-  margin: 16px 0;
-  text-align: center;
-  font-size: 14px;
-}
-
-.connection-result.success {
-  background: var(--vscode-testing-iconPassed);
-  color: white;
-}
-
-.connection-result.error {
-  background: var(--vscode-errorForeground);
-  color: white;
 }
 
 /* 状态消息样式增强 */
