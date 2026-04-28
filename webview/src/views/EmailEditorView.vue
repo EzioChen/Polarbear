@@ -370,6 +370,7 @@ function sendEmail() {
       bcc: form.value.bcc,
       subject: form.value.subject,
       markdown: form.value.markdown,
+      attachments: attachments.value,
     },
   });
 }

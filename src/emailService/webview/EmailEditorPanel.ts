@@ -16,12 +16,17 @@ interface DraftData {
 
 export class EmailEditorPanel {
   public static currentPanel: EmailEditorPanel | undefined;
+  private static onEmailSentCallback: ((success: boolean) => void) | undefined;
 
   private readonly panel: vscode.WebviewPanel;
   private readonly extensionUri: vscode.Uri;
   private readonly context: vscode.ExtensionContext;
   private disposables: vscode.Disposable[] = [];
   private attachments: DraftData['attachments'] = [];
+
+  public static setOnEmailSentCallback(callback: (success: boolean) => void): void {
+    EmailEditorPanel.onEmailSentCallback = callback;
+  }
 
   private constructor(
     panel: vscode.WebviewPanel,
@@ -160,6 +165,11 @@ export class EmailEditorPanel {
             emailService.showLogs();
           }
         });
+
+        // 通知回调
+        if (EmailEditorPanel.onEmailSentCallback) {
+          EmailEditorPanel.onEmailSentCallback(true);
+        }
 
         await this.context.globalState.update('polarbear.email.draft', undefined);
         this.panel.dispose();

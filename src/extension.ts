@@ -20,6 +20,7 @@ import { ReleaseNotesService } from './releaseNotesService';
 let publishFlowManager: PublishFlowManager | undefined;
 let packService: PackService | undefined;
 let releaseNotesService: ReleaseNotesService | undefined;
+let publishTimelinePanel: vscode.WebviewPanel | undefined;
 
 // 发布主题存储文件路径
 function getReleaseSubjectFilePath(workspacePath: string): string {
@@ -51,6 +52,61 @@ function saveReleaseSubject(workspacePath: string, subject: string): void {
   } catch (error) {
     console.error('[Extension] 保存发布主题失败:', error);
   }
+}
+
+// 生成邮件正文
+function generateEmailBody(releaseSubject: string, releaseNotesContent: string): string {
+  // 提取发布说明中的关键信息
+  const lines = releaseNotesContent.split('\n');
+  let summary = '';
+  let inSummary = false;
+
+  for (const line of lines) {
+    // 跳过标题和元数据行
+    if (line.startsWith('#') || line.startsWith('>') || line.trim() === '' || line.startsWith('---')) {
+      continue;
+    }
+    // 提取列表项作为摘要
+    if (line.startsWith('-') || line.startsWith('*') || /^\d+\./.test(line)) {
+      summary += line + '\n';
+    }
+  }
+
+  // 如果没有提取到摘要，使用默认内容
+  if (!summary.trim()) {
+    summary = '- 本次发布包含重要的功能更新和问题修复\n';
+  }
+
+  // 生成商务格式的邮件正文
+  const now = new Date();
+  const hour = now.getHours();
+  let greeting = '上午好';
+  if (hour >= 12 && hour < 14) {
+    greeting = '中午好';
+  } else if (hour >= 14 && hour < 18) {
+    greeting = '下午好';
+  } else if (hour >= 18) {
+    greeting = '晚上好';
+  }
+
+  return `各位同事${greeting}！
+
+附件是 **${releaseSubject}** 的开发SDK，请查阅！
+
+## 📋 版本摘要
+
+${summary}
+
+## 📎 附件说明
+
+- SDK 压缩包已包含完整的开发资料
+- 详细的发布说明请查看附件中的文档
+
+如有任何问题，请及时反馈。
+
+---
+**PolarBear 发布系统**
+${now.toLocaleDateString('zh-CN')} ${now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`;
 }
 
 export function activate(context: vscode.ExtensionContext) {
@@ -132,6 +188,14 @@ export function activate(context: vscode.ExtensionContext) {
           ]
         }
       );
+
+      // 保存 panel 引用
+      publishTimelinePanel = panel;
+
+      // 清理引用当 panel 关闭时
+      panel.onDidDispose(() => {
+        publishTimelinePanel = undefined;
+      });
 
       // 设置 HTML 内容
       panel.webview.html = getWebviewContent(panel.webview, context.extensionUri);
@@ -551,6 +615,16 @@ export function activate(context: vscode.ExtensionContext) {
     async () => {
       const emailService = await ensureEmailService();
       if (!emailService) return;
+
+      // 设置邮件发送回调
+      EmailEditorPanel.setOnEmailSentCallback((success) => {
+        if (success && publishTimelinePanel) {
+          publishTimelinePanel.webview.postMessage({
+            type: 'emailSent',
+            payload: { success: true }
+          });
+        }
+      });
 
       EmailEditorPanel.createOrShow(context.extensionUri, context);
     }
@@ -1039,6 +1113,257 @@ export function activate(context: vscode.ExtensionContext) {
                   type: 'releaseNotesSaved',
                   payload: { success: false, error: (error as Error).message }
                 });
+              }
+              break;
+
+            // ============ 邮件预编辑相关 ============
+            case 'checkEmailConfig':
+              // 检查邮件配置
+              {
+                const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+                const configPath = workspaceFolder
+                  ? path.join(workspaceFolder.uri.fsPath, '.releasePlan', 'smtp-config.json')
+                  : '';
+                const configured = fs.existsSync(configPath);
+                panel.webview.postMessage({
+                  type: 'emailConfigCheckResult',
+                  payload: { configured }
+                });
+              }
+              break;
+
+            case 'prepareEmailData':
+              // 准备邮件数据
+              {
+                try {
+                  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+                  if (!workspaceFolder) {
+                    panel.webview.postMessage({
+                      type: 'emailDataPrepared',
+                      payload: { success: false, error: '未找到工作区' }
+                    });
+                    return;
+                  }
+
+                  const releaseSubject = message.payload?.releaseSubject || '';
+                  const zipPath = message.payload?.zipPath || '';
+
+                  // 读取 SMTP 配置获取收件人信息
+                  const configPath = path.join(workspaceFolder.uri.fsPath, '.releasePlan', 'smtp-config.json');
+                  let defaultTo: string[] = [];
+                  let defaultCc: string[] = [];
+
+                  if (fs.existsSync(configPath)) {
+                    const configContent = fs.readFileSync(configPath, 'utf-8');
+                    const config = JSON.parse(configContent);
+                    defaultTo = (config.defaultTo || []).map((c: any) => c.email).filter(Boolean);
+                    defaultCc = (config.defaultCc || []).map((c: any) => c.email).filter(Boolean);
+                  }
+
+                  // 读取发布说明文件内容
+                  const releaseNotesPath = path.join(
+                    workspaceFolder.uri.fsPath,
+                    '.releasePlan',
+                    'output',
+                    `${releaseSubject}_${new Date().toISOString().split('T')[0].replace(/-/g, '')}.md`
+                  );
+
+                  let releaseNotesContent = '';
+                  if (fs.existsSync(releaseNotesPath)) {
+                    releaseNotesContent = fs.readFileSync(releaseNotesPath, 'utf-8');
+                  }
+
+                  // 生成邮件正文
+                  const emailBody = generateEmailBody(releaseSubject, releaseNotesContent);
+
+                  // 准备附件信息（确保数据可序列化）
+                  let attachments: Array<{ id: string; filename: string; path: string; size: number }> = [];
+                  if (zipPath && fs.existsSync(zipPath)) {
+                    const stat = fs.statSync(zipPath);
+                    // 创建纯 JSON 对象，确保没有不可克隆的数据
+                    const attachmentObj = JSON.parse(JSON.stringify({
+                      id: `att_${Date.now()}`,
+                      filename: path.basename(zipPath),
+                      path: zipPath,
+                      size: stat.size
+                    }));
+                    attachments = [attachmentObj];
+                  }
+
+                  panel.webview.postMessage({
+                    type: 'emailDataPrepared',
+                    payload: {
+                      success: true,
+                      data: {
+                        to: defaultTo.join('; '),
+                        cc: defaultCc.join('; '),
+                        subject: releaseSubject,
+                        body: emailBody,
+                        attachments
+                      }
+                    }
+                  });
+                } catch (error) {
+                  panel.webview.postMessage({
+                    type: 'emailDataPrepared',
+                    payload: { success: false, error: (error as Error).message }
+                  });
+                }
+              }
+              break;
+
+            case 'testEmailConnection':
+              // 测试邮箱连接
+              {
+                try {
+                  const emailService = EmailService.getInstance();
+                  if (!emailService.isInitialized()) {
+                    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+                    if (workspaceFolder) {
+                      await emailService.initialize(workspaceFolder.uri.fsPath, context);
+                    }
+                  }
+
+                  const result = await emailService.testConnection();
+                  // 清理错误对象，移除不可克隆的 originalError
+                  const safeError = result.error ? {
+                    code: result.error.code,
+                    message: result.error.message,
+                    details: result.error.details
+                  } : undefined;
+                  panel.webview.postMessage({
+                    type: 'emailConnectionTestResult',
+                    payload: {
+                      success: result.success,
+                      message: result.success
+                        ? `✅ 邮箱服务连接成功！响应时间: ${result.responseTime}ms`
+                        : `❌ 连接失败: ${safeError?.message || '未知错误'}`,
+                      error: safeError
+                    }
+                  });
+                } catch (error) {
+                  panel.webview.postMessage({
+                    type: 'emailConnectionTestResult',
+                    payload: {
+                      success: false,
+                      message: `❌ 测试失败: ${(error as Error).message}`
+                    }
+                  });
+                }
+              }
+              break;
+
+            case 'openEmailEditor':
+              // 打开邮件编辑器并传递数据
+              {
+                const emailData = message.payload;
+                if (emailData) {
+                  // 确保附件数据是纯 JSON 可序列化的
+                  const sanitizedAttachments = (emailData.attachments || []).map((att: any) => ({
+                    id: String(att.id || ''),
+                    filename: String(att.filename || ''),
+                    path: String(att.path || ''),
+                    size: Number(att.size || 0)
+                  }));
+
+                  // 保存草稿数据到 globalState
+                  const draftData = {
+                    to: String(emailData.to || ''),
+                    cc: String(emailData.cc || ''),
+                    subject: String(emailData.subject || ''),
+                    markdown: String(emailData.body || ''),
+                    attachments: sanitizedAttachments
+                  };
+
+                  await context.globalState.update('polarbear.email.draft', draftData);
+
+                  // 设置邮件发送回调
+                  EmailEditorPanel.setOnEmailSentCallback((success) => {
+                    if (success && publishTimelinePanel) {
+                      publishTimelinePanel.webview.postMessage({
+                        type: 'emailSent',
+                        payload: { success: true }
+                      });
+                    }
+                  });
+
+                  // 打开邮件编辑器
+                  EmailEditorPanel.createOrShow(context.extensionUri, context);
+                }
+              }
+              break;
+
+            case 'sendEmail':
+              // 直接从 PublishTimelineView 发送邮件
+              {
+                const emailData = message.payload;
+                if (emailData) {
+                  const emailService = await ensureEmailService();
+                  if (!emailService) {
+                    panel.webview.postMessage({
+                      type: 'emailSent',
+                      payload: { success: false, message: '邮件服务未配置' }
+                    });
+                    break;
+                  }
+
+                  // 确保附件数据是纯 JSON 可序列化的
+                  const sanitizedAttachments = (emailData.attachments || []).map((att: any) => ({
+                    id: String(att.id || ''),
+                    filename: String(att.filename || ''),
+                    path: String(att.path || ''),
+                    size: Number(att.size || 0)
+                  }));
+
+                  try {
+                    const result = await emailService.sendEmail({
+                      to: String(emailData.to || ''),
+                      cc: emailData.cc ? String(emailData.cc) : undefined,
+                      subject: String(emailData.subject || ''),
+                      text: String(emailData.body || ''),
+                      attachments: sanitizedAttachments
+                    });
+
+                    if (result.success) {
+                      vscode.window.showInformationMessage(
+                        `邮件发送成功！消息ID: ${result.messageId}`,
+                        '查看详情'
+                      ).then(selection => {
+                        if (selection === '查看详情') {
+                          emailService.showLogs();
+                        }
+                      });
+
+                      panel.webview.postMessage({
+                        type: 'emailSent',
+                        payload: { success: true }
+                      });
+                    } else {
+                      const errorMsg = result.error?.message || '发送失败';
+                      vscode.window.showErrorMessage(
+                        `发送失败: ${errorMsg}`,
+                        '重试',
+                        '查看详情'
+                      ).then(selection => {
+                        if (selection === '查看详情') {
+                          emailService.showLogs();
+                        }
+                      });
+
+                      panel.webview.postMessage({
+                        type: 'emailSent',
+                        payload: { success: false, message: errorMsg }
+                      });
+                    }
+                  } catch (error) {
+                    const errorMsg = (error as Error).message;
+                    vscode.window.showErrorMessage(`发送失败: ${errorMsg}`);
+                    panel.webview.postMessage({
+                      type: 'emailSent',
+                      payload: { success: false, message: errorMsg }
+                    });
+                  }
+                }
               }
               break;
           }

@@ -99,7 +99,13 @@ export type WebviewMessageType =
   | 'closeEditor'
   // 邮件配置相关
   | 'getConfig'
-  | 'testConnection';
+  | 'testConnection'
+  // 邮件预编辑相关
+  | 'checkEmailConfig'
+  | 'prepareEmailData'
+  | 'openEmailEditor'
+  | 'saveEmailDraft'
+  | 'testEmailConnection';
 
 export interface WebviewMessage {
   type: WebviewMessageType;
@@ -139,7 +145,12 @@ export type ExtensionMessageType =
   | 'saveError'
   | 'testSuccess'
   | 'testError'
-  | 'configError';
+  | 'configError'
+  // 邮件预编辑相关
+  | 'emailConfigCheckResult'
+  | 'emailDataPrepared'
+  | 'emailConnectionTestResult'
+  | 'emailSent';
 
 export interface ExtensionMessage {
   type: ExtensionMessageType;
