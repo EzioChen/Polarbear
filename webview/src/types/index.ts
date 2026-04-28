@@ -75,6 +75,15 @@ export type WebviewMessageType =
   | 'deleteItem'
   | 'deleteBatch'
   | 'confirmClear'
+  // 发布时间轴相关
+  | 'getPublishTimelineStatus'
+  | 'checkPackPrerequisites'
+  | 'startPack'
+  | 'getPackPreview'
+  | 'getCachedZipPath'
+  | 'clearPackCache'
+  | 'getReleaseSubject'
+  | 'saveReleaseSubject'
   // 邮件编辑器相关
   | 'sendEmail'
   | 'saveDraft'
@@ -101,6 +110,15 @@ export type ExtensionMessageType =
   | 'workspaceFiles'
   | 'configUpdated'
   | 'error'
+  // 发布时间轴相关
+  | 'publishTimelineStatus'
+  | 'packPrerequisitesResult'
+  | 'packProgress'
+  | 'packPreviewResult'
+  | 'cachedZipPathResult'
+  | 'packCacheCleared'
+  | 'releaseSubjectResult'
+  | 'releaseSubjectSaved'
   // 邮件编辑器相关
   | 'loadDraft'
   | 'attachmentsUpdated'

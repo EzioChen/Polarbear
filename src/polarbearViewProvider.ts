@@ -63,8 +63,8 @@ export class PolarBearViewProvider implements vscode.TreeDataProvider<PolarBearI
                     '开始发布',
                     vscode.TreeItemCollapsibleState.None,
                     {
-                        command: 'polarbear.startPolar',
-                        title: 'Start Polar',
+                        command: 'polarbear.openPublishTimeline',
+                        title: 'Open Publish Timeline',
                         arguments: []
                     },
                     'play'

@@ -13,9 +13,43 @@ import { EmailConfigPanel } from './emailService/webview/EmailConfigPanel';
 import { ConfigManager } from './emailService/ConfigManager';
 import type { SendEmailOptions } from './emailService/types';
 import { parseAndValidateRecipients, validateSMTPConfig } from './emailService/validators';
+import { PackService } from './packService';
 
 // 全局管理器实例
 let publishFlowManager: PublishFlowManager | undefined;
+let packService: PackService | undefined;
+
+// 发布主题存储文件路径
+function getReleaseSubjectFilePath(workspacePath: string): string {
+  return path.join(workspacePath, '.releasePlan', 'release-subject.json');
+}
+
+// 读取发布主题
+function loadReleaseSubject(workspacePath: string): string {
+  try {
+    const filePath = getReleaseSubjectFilePath(workspacePath);
+    if (fs.existsSync(filePath)) {
+      const content = fs.readFileSync(filePath, 'utf-8');
+      const data = JSON.parse(content);
+      return data.subject || '';
+    }
+  } catch (error) {
+    console.error('[Extension] 读取发布主题失败:', error);
+  }
+  return '';
+}
+
+// 保存发布主题
+function saveReleaseSubject(workspacePath: string, subject: string): void {
+  try {
+    const filePath = getReleaseSubjectFilePath(workspacePath);
+    const data = { subject, updatedAt: new Date().toISOString() };
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+    console.log('[Extension] 发布主题已保存:', subject);
+  } catch (error) {
+    console.error('[Extension] 保存发布主题失败:', error);
+  }
+}
 
 export function activate(context: vscode.ExtensionContext) {
   console.log('Congratulations, your extension "polarbear" is now active!');
@@ -706,6 +740,220 @@ export function activate(context: vscode.ExtensionContext) {
     }
   );
 
+  // 打开发布时间轴页面
+  const openPublishTimelineDisposable = vscode.commands.registerCommand(
+    'polarbear.openPublishTimeline',
+    async () => {
+      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+      if (!workspaceFolder) {
+        vscode.window.showErrorMessage('请先打开一个工作区');
+        return;
+      }
+
+      // 初始化打包服务
+      packService = new PackService(workspaceFolder.uri.fsPath);
+
+      // 创建 Webview Panel
+      const panel = vscode.window.createWebviewPanel(
+        'polarbear.publishTimeline',
+        '发布流程',
+        vscode.ViewColumn.One,
+        {
+          enableScripts: true,
+          retainContextWhenHidden: true,
+          enableCommandUris: true,
+          enableFindWidget: true,
+          localResourceRoots: [
+            vscode.Uri.file(context.extensionPath)
+          ]
+        }
+      );
+
+      // 设置 HTML 内容
+      panel.webview.html = getPublishTimelineWebviewContent(panel.webview, context.extensionUri);
+
+      // 处理消息
+      panel.webview.onDidReceiveMessage(
+        async (message) => {
+          switch (message.type) {
+            case 'getPublishTimelineStatus':
+              // 可以在这里返回发布流程的当前状态
+              panel.webview.postMessage({
+                type: 'publishTimelineStatus',
+                payload: {
+                  steps: [
+                    { id: 'pack', status: 'pending' },
+                    { id: 'release-notes', status: 'pending' },
+                    { id: 'email', status: 'pending' }
+                  ]
+                }
+              });
+              break;
+
+            case 'checkPackPrerequisites':
+              // 检查打包前置条件
+              if (!packService) {
+                panel.webview.postMessage({
+                  type: 'packPrerequisitesResult',
+                  payload: { success: false, error: '打包服务未初始化' }
+                });
+                return;
+              }
+
+              const configCheck = packService.checkPublishConfig();
+              if (!configCheck.exists) {
+                panel.webview.postMessage({
+                  type: 'packPrerequisitesResult',
+                  payload: { success: false, error: configCheck.error }
+                });
+                return;
+              }
+
+              const fileCheck = packService.checkFilesExist();
+              panel.webview.postMessage({
+                type: 'packPrerequisitesResult',
+                payload: {
+                  success: fileCheck.allExist,
+                  error: fileCheck.allExist ? undefined : '部分文件不存在',
+                  missingFiles: fileCheck.missingFiles,
+                  existingFiles: fileCheck.existingFiles
+                }
+              });
+              break;
+
+            case 'startPack':
+              // 开始打包
+              if (!packService) {
+                panel.webview.postMessage({
+                  type: 'packProgress',
+                  payload: { status: 'error', error: '打包服务未初始化' }
+                });
+                return;
+              }
+
+              try {
+                panel.webview.postMessage({
+                  type: 'packProgress',
+                  payload: { status: 'started', progress: 0 }
+                });
+
+                // 获取自定义文件名（从消息 payload 中）
+                const customFileName = message.payload?.fileName;
+                console.log('[Extension] 开始打包，自定义文件名:', customFileName || '无');
+
+                const result = await packService.pack(customFileName);
+
+                if (result.success) {
+                  panel.webview.postMessage({
+                    type: 'packProgress',
+                    payload: {
+                      status: 'completed',
+                      progress: 100,
+                      zipPath: result.zipPath,
+                      packedFiles: result.packedFiles,
+                      skippedFiles: result.skippedFiles
+                    }
+                  });
+                } else {
+                  panel.webview.postMessage({
+                    type: 'packProgress',
+                    payload: {
+                      status: 'error',
+                      error: result.error,
+                      skippedFiles: result.skippedFiles
+                    }
+                  });
+                }
+              } catch (error) {
+                panel.webview.postMessage({
+                  type: 'packProgress',
+                  payload: {
+                    status: 'error',
+                    error: (error as Error).message
+                  }
+                });
+              }
+              break;
+
+            case 'getPackPreview':
+              // 获取打包预览信息
+              if (!packService) {
+                panel.webview.postMessage({
+                  type: 'packPreviewResult',
+                  payload: { fileCount: 0, totalSize: 0, folders: [] }
+                });
+                return;
+              }
+
+              const preview = packService.getPackPreview();
+              panel.webview.postMessage({
+                type: 'packPreviewResult',
+                payload: preview
+              });
+              break;
+
+            case 'getCachedZipPath':
+              // 获取缓存的 zip 路径
+              if (!packService) {
+                panel.webview.postMessage({
+                  type: 'cachedZipPathResult',
+                  payload: { zipPath: null }
+                });
+                return;
+              }
+
+              const cachedPath = packService.getCachedZipPath();
+              panel.webview.postMessage({
+                type: 'cachedZipPathResult',
+                payload: { zipPath: cachedPath }
+              });
+              break;
+
+            case 'clearPackCache':
+              // 清除打包缓存
+              if (packService) {
+                packService.clearCache();
+              }
+              panel.webview.postMessage({
+                type: 'packCacheCleared',
+                payload: { success: true }
+              });
+              break;
+
+            case 'getReleaseSubject':
+              // 获取发布主题
+              {
+                const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                const subject = workspacePath ? loadReleaseSubject(workspacePath) : '';
+                panel.webview.postMessage({
+                  type: 'releaseSubjectResult',
+                  payload: { subject }
+                });
+              }
+              break;
+
+            case 'saveReleaseSubject':
+              // 保存发布主题
+              {
+                const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                const subject = message.payload?.subject || '';
+                if (workspacePath) {
+                  saveReleaseSubject(workspacePath, subject);
+                }
+                panel.webview.postMessage({
+                  type: 'releaseSubjectSaved',
+                  payload: { success: true }
+                });
+              }
+              break;
+          }
+        },
+        undefined,
+        context.subscriptions
+      );
+    }
+  );
+
   // ============ 状态栏集成 ============
   const statusBarItem = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Right,
@@ -726,6 +974,7 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(addPublishFlowDisposable);
   context.subscriptions.push(openPublishFlowDisposable);
   context.subscriptions.push(openReleaseNotesDisposable);
+  context.subscriptions.push(openPublishTimelineDisposable);
   context.subscriptions.push(emailOpenEditorDisposable);
   context.subscriptions.push(emailConfigureDisposable);
   context.subscriptions.push(emailTestConnectionDisposable);
@@ -812,6 +1061,35 @@ function getReleaseNotesWebviewContent(webview: vscode.Webview, extensionUri: vs
     </head>
     <body>
       <div id="app" data-page="release-notes"></div>
+      <script nonce="${nonce}" src="${scriptUri}"></script>
+    </body>
+    </html>`;
+}
+
+/**
+ * 获取发布时间轴 Webview HTML 内容
+ */
+function getPublishTimelineWebviewContent(webview: vscode.Webview, extensionUri: vscode.Uri): string {
+  const scriptUri = webview.asWebviewUri(
+    vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'assets', 'main.js')
+  );
+  const styleUri = webview.asWebviewUri(
+    vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'assets', 'style.css')
+  );
+
+  const nonce = getNonce();
+
+  return `<!DOCTYPE html>
+    <html lang="zh-CN">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}'; style-src ${webview.cspSource} 'unsafe-inline'; img-src ${webview.cspSource} data:; font-src ${webview.cspSource};">
+      <title>发布流程</title>
+      <link rel="stylesheet" href="${styleUri}">
+    </head>
+    <body>
+      <div id="app" data-page="publish-timeline"></div>
       <script nonce="${nonce}" src="${scriptUri}"></script>
     </body>
     </html>`;

@@ -44,6 +44,11 @@
         "icon": "$(book)"
       },
       {
+        "command": "polarbear.openPublishTimeline",
+        "title": "Open Publish Timeline",
+        "icon": "$(play)"
+      },
+      {
         "command": "polarbear.email.openEditor",
         "title": "打开邮件编辑器",
         "category": "PolarBear Email",
@@ -175,6 +180,8 @@
     "webpack-cli": "^6.0.1"
   },
   "dependencies": {
+    "@types/jszip": "^3.4.0",
+    "jszip": "^3.10.1",
     "nodemailer": "^8.0.7"
   }
 }

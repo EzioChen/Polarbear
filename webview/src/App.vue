@@ -4,6 +4,7 @@
     <EmailEditorView v-else-if="isEmailEditor" />
     <EmailConfigView v-else-if="isEmailConfig" />
     <ReleaseNotesView v-else-if="isReleaseNotes" />
+    <PublishTimelineView v-else-if="isPublishTimeline" />
     <PublishFlowView v-else />
   </div>
 </template>
@@ -14,10 +15,12 @@ import ReleaseNotesView from './views/ReleaseNotesView.vue';
 import PublishFlowView from './views/PublishFlowView.vue';
 import EmailEditorView from './views/EmailEditorView.vue';
 import EmailConfigView from './views/EmailConfigView.vue';
+import PublishTimelineView from './views/PublishTimelineView.vue';
 
 const isReleaseNotes = ref(false);
 const isEmailEditor = ref(false);
 const isEmailConfig = ref(false);
+const isPublishTimeline = ref(false);
 const pageLoaded = ref(false);
 
 onMounted(() => {
@@ -28,6 +31,7 @@ onMounted(() => {
   isReleaseNotes.value = pageType === 'release-notes';
   isEmailEditor.value = pageType === 'email-editor';
   isEmailConfig.value = pageType === 'email-config';
+  isPublishTimeline.value = pageType === 'publish-timeline';
   pageLoaded.value = true;
 });
 </script>
