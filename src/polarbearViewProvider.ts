@@ -34,16 +34,6 @@ export class PolarBearViewProvider implements vscode.TreeDataProvider<PolarBearI
         if (!element) {
             return Promise.resolve([
                 new PolarBearItem(
-                    '开始发布',
-                    vscode.TreeItemCollapsibleState.None,
-                    {
-                        command: 'polarbear.startPolar',
-                        title: 'Start Polar',
-                        arguments: []
-                    },
-                    'play'
-                ),
-                new PolarBearItem(
                     '增加发布流程',
                     vscode.TreeItemCollapsibleState.None,
                     {
@@ -64,41 +54,21 @@ export class PolarBearViewProvider implements vscode.TreeDataProvider<PolarBearI
                     'book'
                 ),
                 new PolarBearItem(
-                    '测试登录',
-                    vscode.TreeItemCollapsibleState.None,
-                    {
-                        command: 'polarbear.testLogin',
-                        title: 'Test Login',
-                        arguments: []
-                    },
-                    'account'
-                ),
-                new PolarBearItem(
-                    '发布说明',
-                    vscode.TreeItemCollapsibleState.None,
-                    {
-                        command: 'polarbear.openReleaseNotes',
-                        title: 'Open Release Notes',
-                        arguments: []
-                    },
-                    'book'
-                ),
-                new PolarBearItem(
                     '邮件服务',
                     vscode.TreeItemCollapsibleState.Expanded,
                     undefined,
                     'mail'
                 ),
                 new PolarBearItem(
-                    '设置',
+                    '开始发布',
                     vscode.TreeItemCollapsibleState.None,
                     {
-                        command: 'polarbear.openSettings',
-                        title: 'Open Settings',
+                        command: 'polarbear.startPolar',
+                        title: 'Start Polar',
                         arguments: []
                     },
-                    'gear'
-                )
+                    'play'
+                ),
             ]);
         }
 
