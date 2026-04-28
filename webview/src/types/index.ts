@@ -64,6 +64,7 @@ export interface PublishStats {
  * Webview 消息类型
  */
 export type WebviewMessageType =
+  // 发布流程相关
   | 'getWorkspaceFiles'
   | 'getPublishConfig'
   | 'selectFiles'
@@ -73,22 +74,47 @@ export type WebviewMessageType =
   | 'moveInPublishList'
   | 'deleteItem'
   | 'deleteBatch'
-  | 'confirmClear';
+  | 'confirmClear'
+  // 邮件编辑器相关
+  | 'sendEmail'
+  | 'saveDraft'
+  | 'addAttachment'
+  | 'removeAttachment'
+  | 'openConfig'
+  | 'editorReady'
+  | 'closeEditor'
+  // 邮件配置相关
+  | 'getConfig'
+  | 'testConnection';
 
 export interface WebviewMessage {
   type: WebviewMessageType;
   payload?: any;
+  data?: any;
 }
 
 /**
  * Extension 消息类型
  */
 export type ExtensionMessageType =
+  // 发布流程相关
   | 'workspaceFiles'
   | 'configUpdated'
-  | 'error';
+  | 'error'
+  // 邮件编辑器相关
+  | 'loadDraft'
+  | 'attachmentsUpdated'
+  | 'draftSaved'
+  // 邮件配置相关
+  | 'configLoaded'
+  | 'configSaved'
+  | 'saveError'
+  | 'testSuccess'
+  | 'testError'
+  | 'configError';
 
 export interface ExtensionMessage {
   type: ExtensionMessageType;
-  payload: any;
+  payload?: any;
+  data?: any;
 }

@@ -283,25 +283,39 @@ export class EmailEditorPanel {
   }
 
   private getHtmlContent(): string {
-    // 优先从 webpack 输出目录读取（生产环境）
-    const distPath = path.join(this.extensionUri.fsPath, 'dist', 'email-template.html');
-    if (fs.existsSync(distPath)) {
-      try {
-        return fs.readFileSync(distPath, 'utf-8');
-      } catch {
-        // ignore
-      }
+    // 使用主 webview 的 Vue 构建产物
+    const scriptUri = this.panel.webview.asWebviewUri(
+      vscode.Uri.joinPath(this.extensionUri, 'dist', 'webview', 'assets', 'main.js')
+    );
+    const styleUri = this.panel.webview.asWebviewUri(
+      vscode.Uri.joinPath(this.extensionUri, 'dist', 'webview', 'assets', 'style.css')
+    );
+
+    const nonce = this.getNonce();
+
+    return `<!DOCTYPE html>
+    <html lang="zh-CN">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}'; style-src ${this.panel.webview.cspSource} 'unsafe-inline'; img-src ${this.panel.webview.cspSource} data:; font-src ${this.panel.webview.cspSource};">
+      <title>邮件编辑器</title>
+      <link rel="stylesheet" href="${styleUri}">
+    </head>
+    <body>
+      <div id="app" data-page="email-editor"></div>
+      <script nonce="${nonce}" src="${scriptUri}"></script>
+    </body>
+    </html>`;
+  }
+
+  private getNonce(): string {
+    let text = '';
+    const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    for (let i = 0; i < 32; i++) {
+      text += possible.charAt(Math.floor(Math.random() * possible.length));
     }
-    // 回退到源文件路径（开发环境）
-    const srcPath = path.join(this.extensionUri.fsPath, 'src', 'emailService', 'webview', 'template.html');
-    if (fs.existsSync(srcPath)) {
-      try {
-        return fs.readFileSync(srcPath, 'utf-8');
-      } catch {
-        // ignore
-      }
-    }
-    return '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>邮件编辑器</title></head><body><h2>邮件编辑器</h2><p>加载模板失败</p></body></html>';
+    return text;
   }
 
   dispose(): void {
