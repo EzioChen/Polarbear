@@ -12,3 +12,30 @@ vsc-extension-quickstart.md
 **/*.map
 **/*.ts
 **/.vscode-test.*
+
+# 开发相关文件
+.claude/**
+.releasePlan/**
+docs/**
+webview/src/**
+webview/node_modules/**
+webview/package.json
+webview/tsconfig.json
+webview/tsconfig.node.json
+webview/vite.config.ts
+
+# 日志和临时文件
+**/*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# 测试文件
+src/test/**
+**/*.test.ts
+
+# 其他不需要的文件
+.git/**
+.github/**
+.travis.yml
+appveyor.yml
