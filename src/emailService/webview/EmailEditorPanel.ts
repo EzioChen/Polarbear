@@ -41,29 +41,45 @@ export class EmailEditorPanel {
 
     this.panel.webview.onDidReceiveMessage(
       async (message) => {
-        switch (message.type) {
-          case 'sendEmail':
-            await this.handleSendEmail(message.data);
-            break;
-          case 'saveDraft':
-            await this.handleSaveDraft(message.data);
-            break;
-          case 'addAttachment':
-            await this.handleAddAttachment();
-            break;
-          case 'removeAttachment':
-            this.handleRemoveAttachment(message.data.id);
-            break;
-          case 'checkDraft':
-            await this.handleCheckDraft();
-            break;
-          case 'openConfig':
-            vscode.commands.executeCommand('polarbear.email.configure');
-            break;
-          case 'editorReady':
-            await this.handleCheckDraft();
-            await this.handleLoadConfig();
-            break;
+        console.log('[EmailEditorPanel] 收到 webview 消息:', message.type, message);
+        try {
+          switch (message.type) {
+            case 'sendEmail':
+              console.log('[EmailEditorPanel] 处理 sendEmail 消息');
+              await this.handleSendEmail(message.data);
+              console.log('[EmailEditorPanel] sendEmail 处理完成');
+              break;
+            case 'saveDraft':
+              console.log('[EmailEditorPanel] 处理 saveDraft 消息');
+              await this.handleSaveDraft(message.data);
+              break;
+            case 'addAttachment':
+              console.log('[EmailEditorPanel] 处理 addAttachment 消息');
+              await this.handleAddAttachment();
+              break;
+            case 'removeAttachment':
+              console.log('[EmailEditorPanel] 处理 removeAttachment 消息');
+              this.handleRemoveAttachment(message.data.id);
+              break;
+            case 'checkDraft':
+              console.log('[EmailEditorPanel] 处理 checkDraft 消息');
+              await this.handleCheckDraft();
+              break;
+            case 'openConfig':
+              console.log('[EmailEditorPanel] 处理 openConfig 消息');
+              vscode.commands.executeCommand('polarbear.email.configure');
+              break;
+            case 'editorReady':
+              console.log('[EmailEditorPanel] 处理 editorReady 消息');
+              await this.handleCheckDraft();
+              await this.handleLoadConfig();
+              break;
+            default:
+              console.log('[EmailEditorPanel] 未知消息类型:', message.type);
+          }
+        } catch (error) {
+          console.error('[EmailEditorPanel] 处理消息时出错:', message.type, error);
+          vscode.window.showErrorMessage(`处理 ${message.type} 失败: ${(error as Error).message}`);
         }
       },
       undefined,
@@ -111,31 +127,48 @@ export class EmailEditorPanel {
     subject: string;
     markdown: string;
   }): Promise<void> {
+    console.log('[EmailEditorPanel] ==================== 发送邮件按钮被点击 ====================');
+    console.log('[EmailEditorPanel] 接收到的数据:', JSON.stringify({
+      to: data.to,
+      cc: data.cc,
+      bcc: data.bcc,
+      subject: data.subject,
+      markdownLength: data.markdown?.length || 0,
+    }));
+
     const emailService = EmailService.getInstance();
+    console.log('[EmailEditorPanel] 邮件服务实例已获取');
 
     if (!emailService.isInitialized()) {
+      console.error('[EmailEditorPanel] 邮件服务未初始化，无法发送');
       vscode.window.showErrorMessage('邮件服务未初始化');
       return;
     }
+    console.log('[EmailEditorPanel] 邮件服务已初始化');
 
     if (!data.to.trim()) {
+      console.warn('[EmailEditorPanel] 收件人为空，阻止发送');
       vscode.window.showWarningMessage('请输入收件人地址');
       return;
     }
 
     if (!data.subject.trim()) {
+      console.warn('[EmailEditorPanel] 主题为空，阻止发送');
       vscode.window.showWarningMessage('请输入邮件主题');
       return;
     }
 
     if (!data.markdown.trim()) {
+      console.warn('[EmailEditorPanel] 内容为空，阻止发送');
       vscode.window.showWarningMessage('请输入邮件内容');
       return;
     }
 
+    console.log('[EmailEditorPanel] 表单验证通过，开始解析收件人...');
     const toList = data.to.split(/[;,]/).map(e => e.trim()).filter(e => e.length > 0);
     const ccList = data.cc ? data.cc.split(/[;,]/).map(e => e.trim()).filter(e => e.length > 0) : undefined;
     const bccList = data.bcc ? data.bcc.split(/[;,]/).map(e => e.trim()).filter(e => e.length > 0) : undefined;
+    console.log('[EmailEditorPanel] 收件人解析结果:', { toList, ccList, bccList });
 
     const options: SendEmailOptions = {
       to: toList,
@@ -148,32 +181,50 @@ export class EmailEditorPanel {
         path: att.path,
       })),
     };
+    console.log('[EmailEditorPanel] 邮件选项已构建:', JSON.stringify({
+      ...options,
+      text: options.text?.substring(0, 100) + '...',
+    }));
 
+    console.log('[EmailEditorPanel] 开始显示发送进度通知...');
     await vscode.window.withProgress({
       location: vscode.ProgressLocation.Notification,
       title: '正在发送邮件...',
       cancellable: false,
     }, async () => {
+      console.log('[EmailEditorPanel] 进入发送进度回调，调用 emailService.sendEmail()...');
       const result = await emailService.sendEmail(options);
+      console.log('[EmailEditorPanel] emailService.sendEmail() 返回结果:', JSON.stringify({
+        success: result.success,
+        messageId: result.messageId,
+        duration: result.duration,
+        error: result.error?.message,
+      }));
 
       if (result.success) {
+        console.log('[EmailEditorPanel] 邮件发送成功，显示成功消息');
         vscode.window.showInformationMessage(
           `邮件发送成功！消息ID: ${result.messageId}`,
           '查看详情'
         ).then(selection => {
           if (selection === '查看详情') {
+            console.log('[EmailEditorPanel] 用户选择查看详情');
             emailService.showLogs();
           }
         });
 
         // 通知回调
         if (EmailEditorPanel.onEmailSentCallback) {
+          console.log('[EmailEditorPanel] 调用发送成功回调');
           EmailEditorPanel.onEmailSentCallback(true);
         }
 
+        console.log('[EmailEditorPanel] 清除草稿并关闭编辑器');
         await this.context.globalState.update('polarbear.email.draft', undefined);
         this.panel.dispose();
+        console.log('[EmailEditorPanel] ==================== 发送流程完成（成功）====================');
       } else {
+        console.error('[EmailEditorPanel] 邮件发送失败:', result.error?.message);
         const errorMsg = result.error?.message || '发送失败';
         vscode.window.showErrorMessage(
           `发送失败: ${errorMsg}`,
@@ -181,11 +232,14 @@ export class EmailEditorPanel {
           '查看详情'
         ).then(selection => {
           if (selection === '重试') {
+            console.log('[EmailEditorPanel] 用户选择重试发送');
             this.handleSendEmail(data);
           } else if (selection === '查看详情') {
+            console.log('[EmailEditorPanel] 用户选择查看详情');
             emailService.showLogs();
           }
         });
+        console.log('[EmailEditorPanel] ==================== 发送流程完成（失败）====================');
       }
 
       return result;

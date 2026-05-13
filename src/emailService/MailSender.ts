@@ -7,6 +7,7 @@ import { ERROR_MESSAGES, formatErrorMessage } from './constants';
 export class MailSender {
   private transporter: Transporter | null = null;
   private retryConfig: { enabled: boolean; maxRetries: number; retryDelay: number; exponentialBackoff: boolean };
+  private logger: ((level: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR', message: string) => void) | null = null;
 
   constructor(retryConfig?: { enabled: boolean; maxRetries: number; retryDelay: number; exponentialBackoff: boolean }) {
     this.retryConfig = retryConfig ?? {
@@ -15,6 +16,22 @@ export class MailSender {
       retryDelay: 5000,
       exponentialBackoff: true,
     };
+  }
+
+  /**
+   * 设置日志记录器
+   */
+  setLogger(logger: (level: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR', message: string) => void): void {
+    this.logger = logger;
+  }
+
+  /**
+   * 记录日志
+   */
+  private log(level: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR', message: string): void {
+    if (this.logger) {
+      this.logger(level, message);
+    }
   }
 
   /**
@@ -28,6 +45,10 @@ export class MailSender {
    * 创建 SMTP 传输器
    */
   async createTransporter(config: SMTPConfig): Promise<Transporter> {
+    this.log('DEBUG', `创建 SMTP 传输器: ${config.smtp.host}:${config.smtp.port}`);
+    this.log('DEBUG', `SMTP 配置: secure=${config.smtp.secure}, tls.rejectUnauthorized=${config.smtp.tls?.rejectUnauthorized}`);
+    this.log('DEBUG', `认证配置: user=${config.auth.user}, type=${config.auth.type}`);
+
     try {
       const transporter = nodemailer.createTransport({
         host: config.smtp.host,
@@ -48,11 +69,24 @@ export class MailSender {
         socketTimeout: config.connection?.socketTimeout,
       } as TransportOptions);
 
-      // 验证连接配置
-      await transporter.verify();
+      this.log('DEBUG', 'SMTP 传输器已创建，开始验证连接...');
+
+      // 验证连接配置（带超时）
+      const verifyTimeout = config.connection?.timeout || 30000;
+      this.log('DEBUG', `连接验证超时设置: ${verifyTimeout}ms`);
+
+      await Promise.race([
+        transporter.verify(),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error(`连接验证超时 (${verifyTimeout}ms)`)), verifyTimeout)
+        ),
+      ]);
+
+      this.log('DEBUG', 'SMTP 连接验证成功');
 
       return transporter;
     } catch (error) {
+      this.log('ERROR', `创建 SMTP 传输器失败: ${(error as Error).message}`);
       throw this.mapNodemailerError(error, config);
     }
   }
@@ -63,11 +97,16 @@ export class MailSender {
   async send(mailOptions: MailOptions, config: SMTPConfig): Promise<SendResult> {
     const startTime = Date.now();
 
+    this.log('INFO', `准备发送邮件: 主题="${mailOptions.subject}"`);
+    this.log('DEBUG', `重试配置: enabled=${this.retryConfig.enabled}, maxRetries=${this.retryConfig.maxRetries}`);
+
     // 判断是否启用重试
     if (this.retryConfig.enabled && this.retryConfig.maxRetries > 0) {
+      this.log('DEBUG', '启用重试机制');
       return this.executeWithRetry(() => this.executeSend(mailOptions, config), config);
     }
 
+    this.log('DEBUG', '禁用重试机制');
     return this.executeSend(mailOptions, config);
   }
 
@@ -77,17 +116,28 @@ export class MailSender {
   private async executeSend(mailOptions: MailOptions, config: SMTPConfig): Promise<SendResult> {
     const startTime = Date.now();
 
+    const toAddresses = Array.isArray(mailOptions.to) ? mailOptions.to.join(', ') : mailOptions.to || '无';
+    this.log('DEBUG', `开始执行邮件发送: 收件人=${toAddresses}, 主题="${mailOptions.subject}"`);
+    this.log('DEBUG', `发件人: ${mailOptions.from}`);
+    this.log('DEBUG', `邮件选项: cc=${mailOptions.cc?.length || 0}人, 附件=${mailOptions.attachments?.length || 0}个`);
+
     try {
       // 创建传输器（建立连接）
+      this.log('DEBUG', '正在创建 SMTP 传输器...');
       this.transporter = await this.createTransporter(config);
+      this.log('DEBUG', 'SMTP 传输器创建成功');
 
       // 发送邮件
+      this.log('DEBUG', '正在发送邮件...');
       const info = await this.transporter.sendMail(mailOptions as unknown as Record<string, unknown>);
+      this.log('DEBUG', `邮件发送完成: messageId=${info.messageId}, response=${info.response}`);
+      this.log('DEBUG', `发送结果: accepted=${JSON.stringify(info.accepted)}, rejected=${JSON.stringify(info.rejected)}`);
 
       // 关闭连接
       await this.close();
 
       const duration = Date.now() - startTime;
+      this.log('DEBUG', `邮件发送成功，耗时: ${duration}ms`);
 
       const msgId = info.messageId;
       const resp = info.response;
@@ -106,6 +156,14 @@ export class MailSender {
 
       const duration = Date.now() - startTime;
       const emailError = this.mapNodemailerError(error, config);
+
+      this.log('ERROR', `邮件发送失败: ${emailError.message}, code=${emailError.code}, 耗时: ${duration}ms`);
+      this.log('DEBUG', `错误详情: ${JSON.stringify({
+        code: emailError.code,
+        message: emailError.message,
+        originalError: (error as Error).message,
+        stack: (error as Error).stack,
+      })}`);
 
       return {
         success: false,
@@ -129,27 +187,37 @@ export class MailSender {
 
     let lastResult: SendResult | null = null;
 
+    this.log('DEBUG', `开始重试机制: maxRetries=${maxRetries}`);
+
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      this.log('DEBUG', `第 ${attempt}/${maxRetries} 次尝试发送...`);
+
       lastResult = await operation();
 
       if (lastResult.success) {
+        this.log('DEBUG', `第 ${attempt} 次尝试成功`);
         return lastResult;
       }
+
+      this.log('WARN', `第 ${attempt} 次尝试失败: ${lastResult.error?.message}, code=${lastResult.error?.code}`);
 
       // 判断错误是否可重试
       const errorCode = lastResult.error?.code;
       if (!errorCode || !this.shouldRetry(errorCode)) {
+        this.log('DEBUG', `错误不可重试: code=${errorCode}`);
         return lastResult;
       }
 
       // 最后一次尝试后不再等待
       if (attempt < maxRetries) {
         const delay = this.calculateDelay(attempt);
+        this.log('DEBUG', `等待 ${delay}ms 后进行下一次重试...`);
         await this.sleep(delay);
       }
     }
 
     // 重试耗尽
+    this.log('ERROR', `重试耗尽，共尝试 ${maxRetries} 次`);
     return lastResult ?? {
       success: false,
       timestamp: new Date().toISOString(),
@@ -209,6 +277,9 @@ export class MailSender {
   async testConnection(config: SMTPConfig): Promise<{ success: boolean; responseTime?: number; response?: string; error?: EmailError }> {
     const startTime = Date.now();
 
+    this.log('INFO', `开始测试 SMTP 连接: ${config.smtp.host}:${config.smtp.port}`);
+    this.log('DEBUG', `测试连接配置: user=${config.auth.user}, secure=${config.smtp.secure}`);
+
     try {
       const transporter = await this.createTransporter(config);
       const responseTime = Date.now() - startTime;
@@ -219,6 +290,8 @@ export class MailSender {
 
       transporter.close();
 
+      this.log('INFO', `SMTP 连接测试成功, 响应时间: ${totalTime}ms`);
+
       return {
         success: true,
         responseTime: totalTime,
@@ -226,10 +299,14 @@ export class MailSender {
       };
     } catch (error) {
       const duration = Date.now() - startTime;
+      const emailError = this.mapNodemailerError(error, config);
+
+      this.log('ERROR', `SMTP 连接测试失败: ${emailError.message}, code=${emailError.code}, 耗时: ${duration}ms`);
+
       return {
         success: false,
         responseTime: duration,
-        error: this.mapNodemailerError(error, config),
+        error: emailError,
       };
     }
   }

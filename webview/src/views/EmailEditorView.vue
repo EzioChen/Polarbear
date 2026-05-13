@@ -362,17 +362,43 @@ function formatFileSize(bytes: number): string {
 }
 
 function sendEmail() {
+  console.log('[EmailEditorView] ==================== 发送邮件按钮被点击 ====================');
+  console.log('[EmailEditorView] 当前表单数据:', {
+    to: form.value.to,
+    cc: form.value.cc,
+    bcc: form.value.bcc,
+    subject: form.value.subject,
+    markdownLength: form.value.markdown?.length || 0,
+    attachmentsCount: attachments.value?.length || 0,
+  });
+  console.log('[EmailEditorView] canSend 计算属性值:', canSend.value);
+
+  if (!canSend.value) {
+    console.warn('[EmailEditorView] 表单验证未通过，阻止发送');
+    return;
+  }
+
+  doSendEmail();
+}
+
+
+function doSendEmail() {
+  console.log('[EmailEditorView] 准备发送消息到扩展...');
+  // 将响应式对象转换为纯 JSON 对象，避免 DataCloneError
+  const sendData = {
+    to: form.value.to,
+    cc: form.value.cc,
+    bcc: form.value.bcc,
+    subject: form.value.subject,
+    markdown: form.value.markdown,
+    attachments: JSON.parse(JSON.stringify(attachments.value || [])),
+  };
+  console.log('[EmailEditorView] 发送数据（已序列化）:', sendData);
   vscode.postMessage({
     type: 'sendEmail',
-    data: {
-      to: form.value.to,
-      cc: form.value.cc,
-      bcc: form.value.bcc,
-      subject: form.value.subject,
-      markdown: form.value.markdown,
-      attachments: attachments.value,
-    },
+    data: sendData,
   });
+  console.log('[EmailEditorView] 发送邮件消息已发送到扩展');
 }
 
 function saveDraft() {
@@ -411,9 +437,11 @@ function removeAttachment(id: string) {
 // 监听来自扩展的消息
 window.addEventListener('message', (event) => {
   const message = event.data;
+  console.log('[EmailEditorView] 收到来自扩展的消息:', message.type, message);
 
   switch (message.type) {
     case 'loadDraft':
+      console.log('[EmailEditorView] 加载草稿数据:', message.data);
       if (message.data) {
         form.value.to = message.data.to || '';
         form.value.cc = message.data.cc || '';
@@ -421,20 +449,25 @@ window.addEventListener('message', (event) => {
         form.value.subject = message.data.subject || '';
         form.value.markdown = message.data.markdown || '';
         attachments.value = message.data.attachments || [];
+        console.log('[EmailEditorView] 草稿已加载');
       }
       break;
     case 'configLoaded':
+      console.log('[EmailEditorView] 加载配置数据:', message.data);
       // 加载默认收件人和抄送人
       if (message.data) {
         const defaultTo: Array<{ name?: string; email: string }> = message.data.defaultTo || [];
         const defaultCc: Array<{ name?: string; email: string }> = message.data.defaultCc || [];
+        console.log('[EmailEditorView] 默认收件人:', defaultTo, '默认抄送:', defaultCc);
         
         // 只有在表单为空时才填充默认值
         if (!form.value.to && defaultTo.length > 0) {
           form.value.to = defaultTo.map(c => c.email).join(';');
+          console.log('[EmailEditorView] 已填充默认收件人:', form.value.to);
         }
         if (!form.value.cc && defaultCc.length > 0) {
           form.value.cc = defaultCc.map(c => c.email).join(';');
+          console.log('[EmailEditorView] 已填充默认抄送:', form.value.cc);
         }
       }
       break;

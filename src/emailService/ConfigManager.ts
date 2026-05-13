@@ -1,23 +1,34 @@
 import * as vscode from 'vscode';
-import * as fs from 'fs';
-import * as path from 'path';
 import type { SMTPConfig, ValidationResult, EmailError } from './types';
 import { EmailErrorCode } from './types';
-import { DEFAULT_SMTP_CONFIG, DEFAULT_CONFIG_PATH, SECRET_STORAGE_KEY, ERROR_MESSAGES, formatErrorMessage } from './constants';
+import { DEFAULT_SMTP_CONFIG, SECRET_STORAGE_KEY, ERROR_MESSAGES, formatErrorMessage } from './constants';
 import { validateSMTPConfig } from './validators';
 
 export class ConfigManager {
   private config: SMTPConfig | null = null;
-  private configPath: string = '';
   private isLoaded: boolean = false;
   private secretStorage: vscode.SecretStorage | null = null;
-  private workspacePath: string;
+  private logger: ((level: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR', message: string) => void) | null = null;
 
-  constructor(workspacePath: string, secretStorage?: vscode.SecretStorage) {
-    this.workspacePath = workspacePath;
-    this.configPath = path.join(workspacePath, DEFAULT_CONFIG_PATH);
+  constructor(secretStorage?: vscode.SecretStorage) {
     if (secretStorage) {
       this.secretStorage = secretStorage;
+    }
+  }
+
+  /**
+   * 设置日志记录器
+   */
+  setLogger(logger: (level: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR', message: string) => void): void {
+    this.logger = logger;
+  }
+
+  /**
+   * 记录日志
+   */
+  private log(level: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR', message: string): void {
+    if (this.logger) {
+      this.logger(level, message);
     }
   }
 
@@ -29,90 +40,83 @@ export class ConfigManager {
   }
 
   /**
-   * 解析配置文件路径
+   * 从 VS Code 全局配置加载
    */
-  resolveConfigPath(configPath?: string): string {
-    if (configPath) {
-      if (path.isAbsolute(configPath)) {
-        return configPath;
-      }
-      return path.join(this.workspacePath, configPath);
-    }
-    return this.configPath;
-  }
+  async loadConfig(): Promise<SMTPConfig> {
+    this.log('DEBUG', '开始从 VS Code 全局配置加载邮件配置...');
 
-  /**
-   * 从文件加载配置
-   */
-  async loadConfig(configPath?: string): Promise<SMTPConfig> {
-    const resolvedPath = this.resolveConfigPath(configPath);
+    const vscodeConfig = vscode.workspace.getConfiguration('polarbear.email');
 
-    // 检查文件是否存在，如果不存在则创建默认配置
-    if (!fs.existsSync(resolvedPath)) {
-      console.log(`[ConfigManager] 配置文件不存在，创建默认配置: ${resolvedPath}`);
-      await this.createDefaultConfigFile(resolvedPath);
-    }
+    // 从 VS Code 配置中读取各项设置
+    const config: SMTPConfig = {
+      version: '1.0.0',
+      smtp: {
+        host: vscodeConfig.get<string>('smtp.host', ''),
+        port: vscodeConfig.get<number>('smtp.port', 25),
+        secure: vscodeConfig.get<boolean>('smtp.secure', false),
+        tls: {
+          rejectUnauthorized: vscodeConfig.get<boolean>('smtp.tls.rejectUnauthorized', false),
+          minVersion: vscodeConfig.get<string>('smtp.tls.minVersion', 'TLSv1.2'),
+        },
+      },
+      auth: {
+        type: vscodeConfig.get<string>('auth.type', 'login') as 'login' | 'oauth2',
+        user: vscodeConfig.get<string>('auth.user', ''),
+        pass: '', // 从 SecretStorage 读取
+        accessToken: undefined,
+      },
+      sender: {
+        name: vscodeConfig.get<string>('sender.name', ''),
+        address: vscodeConfig.get<string>('sender.address', ''),
+      },
+      connection: {
+        timeout: vscodeConfig.get<number>('connection.timeout', 30000),
+        greetingTimeout: 15000,
+        socketTimeout: 30000,
+      },
+      retry: {
+        enabled: vscodeConfig.get<boolean>('retry.enabled', true),
+        maxRetries: vscodeConfig.get<number>('retry.maxRetries', 3),
+        retryDelay: 5000,
+        exponentialBackoff: true,
+      },
+      logging: {
+        enabled: vscodeConfig.get<boolean>('logging.enabled', true),
+        level: vscodeConfig.get<string>('logging.level', 'info') as 'debug' | 'info' | 'warn' | 'error',
+        logToFile: false,
+        logFilePath: null,
+      },
+      defaultTo: vscodeConfig.get<Array<{ id: string; name: string; email: string }>>('defaultTo', []),
+      defaultCc: vscodeConfig.get<Array<{ id: string; name: string; email: string }>>('defaultCc', []),
+    };
 
-    // 读取文件
-    let content: string;
-    try {
-      content = fs.readFileSync(resolvedPath, 'utf-8');
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'EACCES') {
-        throw this.createError(
-          EmailErrorCode.CONFIG_INVALID,
-          formatErrorMessage(ERROR_MESSAGES.CONFIG_INVALID, { reason: '权限不足' }),
-          { originalError: error as Error }
-        );
-      }
-      throw this.createError(
-        EmailErrorCode.UNKNOWN_ERROR,
-        formatErrorMessage(ERROR_MESSAGES.UNKNOWN_ERROR, { message: (error as Error).message }),
-        { originalError: error as Error }
-      );
-    }
-
-    // 解析 JSON
-    let parsed: Record<string, unknown>;
-    try {
-      parsed = JSON.parse(content);
-    } catch (error) {
-      const syntaxError = error as SyntaxError;
-      const reason = `JSON 解析错误: ${syntaxError.message}`;
-      throw this.createError(
-        EmailErrorCode.CONFIG_INVALID,
-        formatErrorMessage(ERROR_MESSAGES.CONFIG_INVALID, { reason }),
-        { originalError: syntaxError }
-      );
-    }
-
-    if (typeof parsed !== 'object' || parsed === null) {
-      throw this.createError(
-        EmailErrorCode.CONFIG_INVALID,
-        formatErrorMessage(ERROR_MESSAGES.CONFIG_INVALID, { reason: '配置内容不是有效的 JSON 对象' })
-      );
-    }
-
-    // 合并默认值
-    const mergedConfig = this.mergeWithDefaults(parsed as Partial<SMTPConfig>);
+    this.log('DEBUG', `VS Code 配置读取完成: host=${config.smtp.host}, port=${config.smtp.port}, user=${config.auth.user}`);
 
     // 从 SecretStorage 读取密码
     if (this.secretStorage) {
       try {
+        this.log('DEBUG', '正在从 SecretStorage 读取密码...');
         const storedPass = await this.secretStorage.get(SECRET_STORAGE_KEY);
         if (storedPass) {
-          mergedConfig.auth.pass = storedPass;
+          config.auth.pass = storedPass;
+          this.log('DEBUG', '密码已从 SecretStorage 读取');
+        } else {
+          this.log('WARN', 'SecretStorage 中未找到密码');
         }
-      } catch {
-        // SecretStorage 读取失败时忽略，使用配置文件中的密码
+      } catch (error) {
+        this.log('WARN', `从 SecretStorage 读取密码失败: ${(error as Error).message}`);
       }
+    } else {
+      this.log('WARN', 'SecretStorage 未设置，无法读取密码');
     }
 
-    this.config = mergedConfig;
-    this.configPath = resolvedPath;
+    this.config = config;
     this.isLoaded = true;
 
-    return mergedConfig;
+    this.log('INFO', '邮件配置加载完成');
+    this.log('DEBUG', `配置详情: sender=${config.sender.address}, defaultTo=${config.defaultTo?.length || 0}人, defaultCc=${config.defaultCc?.length || 0}人`);
+
+    return config;
   }
 
   /**
@@ -130,13 +134,6 @@ export class ConfigManager {
   }
 
   /**
-   * 获取配置路径
-   */
-  getConfigPath(): string {
-    return this.configPath;
-  }
-
-  /**
    * 配置是否已加载
    */
   getIsLoaded(): boolean {
@@ -147,18 +144,14 @@ export class ConfigManager {
    * 更新配置（部分更新）
    */
   async updateConfig(partial: Partial<SMTPConfig>): Promise<void> {
-    // 如果配置未加载，使用默认配置作为基础
-    let baseConfig: SMTPConfig;
+    // 如果配置未加载，先加载
     if (!this.config) {
-      baseConfig = { ...DEFAULT_SMTP_CONFIG } as SMTPConfig;
-      this.isLoaded = true;
-    } else {
-      baseConfig = { ...this.config };
+      await this.loadConfig();
     }
 
     // 深度合并
     const merged = this.deepMerge(
-      baseConfig as unknown as Record<string, unknown>,
+      this.config as unknown as Record<string, unknown>,
       partial as unknown as Record<string, unknown>
     ) as unknown as SMTPConfig;
 
@@ -187,7 +180,7 @@ export class ConfigManager {
   }
 
   /**
-   * 保存配置到文件
+   * 保存配置到 VS Code 全局配置
    */
   async saveConfig(): Promise<void> {
     if (!this.config) {
@@ -197,33 +190,34 @@ export class ConfigManager {
       );
     }
 
-    // 保存前移除密码字段
-    const configToSave = { ...this.config };
-    if (configToSave.auth) {
-      // 将密码存入 SecretStorage
-      if (configToSave.auth.pass && this.secretStorage) {
-        try {
-          await this.secretStorage.store(SECRET_STORAGE_KEY, configToSave.auth.pass);
-        } catch {
-          // SecretStorage 存储失败
-        }
-      }
-      // 从 JSON 中移除密码
-      configToSave.auth = { ...configToSave.auth, pass: undefined };
-    }
+    const vscodeConfig = vscode.workspace.getConfiguration('polarbear.email');
+    const config = this.config!;
 
-    try {
-      const dir = path.dirname(this.configPath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
+    // 保存到 VS Code 配置
+    await vscodeConfig.update('smtp.host', config.smtp.host, true);
+    await vscodeConfig.update('smtp.port', config.smtp.port, true);
+    await vscodeConfig.update('smtp.secure', config.smtp.secure, true);
+    await vscodeConfig.update('smtp.tls.rejectUnauthorized', config.smtp.tls?.rejectUnauthorized ?? false, true);
+    await vscodeConfig.update('smtp.tls.minVersion', config.smtp.tls?.minVersion ?? 'TLSv1.2', true);
+    await vscodeConfig.update('auth.type', config.auth.type, true);
+    await vscodeConfig.update('auth.user', config.auth.user, true);
+    await vscodeConfig.update('sender.name', config.sender.name, true);
+    await vscodeConfig.update('sender.address', config.sender.address, true);
+    await vscodeConfig.update('connection.timeout', config.connection?.timeout ?? 30000, true);
+    await vscodeConfig.update('retry.enabled', config.retry?.enabled ?? true, true);
+    await vscodeConfig.update('retry.maxRetries', config.retry?.maxRetries ?? 3, true);
+    await vscodeConfig.update('logging.enabled', config.logging?.enabled ?? true, true);
+    await vscodeConfig.update('logging.level', config.logging?.level ?? 'info', true);
+    await vscodeConfig.update('defaultTo', config.defaultTo, true);
+    await vscodeConfig.update('defaultCc', config.defaultCc, true);
+
+    // 保存密码到 SecretStorage
+    if (this.config.auth.pass && this.secretStorage) {
+      try {
+        await this.secretStorage.store(SECRET_STORAGE_KEY, this.config.auth.pass);
+      } catch {
+        // SecretStorage 存储失败
       }
-      fs.writeFileSync(this.configPath, JSON.stringify(configToSave, null, 2), 'utf-8');
-    } catch (error) {
-      throw this.createError(
-        EmailErrorCode.UNKNOWN_ERROR,
-        formatErrorMessage(ERROR_MESSAGES.UNKNOWN_ERROR, { message: `保存配置失败: ${(error as Error).message}` }),
-        { originalError: error as Error }
-      );
     }
   }
 
@@ -250,12 +244,12 @@ export class ConfigManager {
   /**
    * 获取配置状态
    */
-  getStatus(): { loaded: boolean; valid: boolean; path: string } {
+  getStatus(): { loaded: boolean; valid: boolean; source: string } {
     const validation = this.config ? validateSMTPConfig(this.config) : { valid: false };
     return {
       loaded: this.isLoaded,
       valid: validation.valid,
-      path: this.configPath,
+      source: 'VS Code 全局配置',
     };
   }
 
@@ -272,41 +266,6 @@ export class ConfigManager {
       };
     }
     return masked;
-  }
-
-  /**
-   * 与默认值合并
-   */
-  private mergeWithDefaults(partial: Partial<SMTPConfig>): SMTPConfig {
-    const defaults = DEFAULT_SMTP_CONFIG as SMTPConfig;
-    return {
-      ...defaults,
-      ...partial,
-      smtp: {
-        ...defaults.smtp,
-        ...(partial.smtp || {}),
-        tls: {
-          ...defaults.smtp.tls,
-          ...(partial.smtp?.tls || {}),
-        },
-      },
-      auth: {
-        ...defaults.auth,
-        ...(partial.auth || {}),
-      },
-      sender: {
-        ...defaults.sender,
-        ...(partial.sender || {}),
-      },
-      connection: {
-        ...defaults.connection,
-        ...(partial.connection || {}),
-      },
-      retry: {
-        ...defaults.retry,
-        ...(partial.retry || {}),
-      },
-    } as SMTPConfig;
   }
 
   /**
@@ -334,39 +293,6 @@ export class ConfigManager {
       }
     }
     return result;
-  }
-
-  /**
-   * 创建默认配置文件
-   */
-  private async createDefaultConfigFile(configPath: string): Promise<void> {
-    try {
-      // 确保目录存在
-      const dir = path.dirname(configPath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-
-      // 创建默认配置（不包含密码）
-      const defaultConfig = {
-        ...DEFAULT_SMTP_CONFIG,
-        auth: {
-          ...DEFAULT_SMTP_CONFIG.auth,
-          pass: undefined,
-        },
-      };
-
-      // 写入文件
-      fs.writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2), 'utf-8');
-      console.log(`[ConfigManager] 默认配置文件已创建: ${configPath}`);
-    } catch (error) {
-      console.error(`[ConfigManager] 创建默认配置文件失败: ${(error as Error).message}`);
-      throw this.createError(
-        EmailErrorCode.UNKNOWN_ERROR,
-        formatErrorMessage(ERROR_MESSAGES.UNKNOWN_ERROR, { message: `创建默认配置失败: ${(error as Error).message}` }),
-        { originalError: error as Error }
-      );
-    }
   }
 
   /**

@@ -3,7 +3,7 @@
     "name": "pubflow",
     "displayName": "pubFlow",
     "description": "适用于 JL 发布测试版本的打包发布流",
-    "version": "0.0.1",
+    "version": "0.0.2",
     "repository": {
         "type": "git",
         "url": "https://github.com/EzioChen/Polarbear.git"
@@ -137,12 +137,99 @@
                     "category": "PolarBear Email"
                 },
                 {
-                    "command": "polarbear.email.showLogs",
-                    "category": "PolarBear Email"
-                }
-            ]
-        },
-        "keybindings": [
+                "command": "polarbear.email.showLogs",
+                "category": "PolarBear Email"
+            }
+        ]
+    },
+    "configuration": {
+        "title": "PolarBear Email",
+        "properties": {
+            "polarbear.email.smtp.host": {
+                "type": "string",
+                "default": "",
+                "description": "SMTP 服务器地址"
+            },
+            "polarbear.email.smtp.port": {
+                "type": "number",
+                "default": 25,
+                "description": "SMTP 服务器端口"
+            },
+            "polarbear.email.smtp.secure": {
+                "type": "boolean",
+                "default": false,
+                "description": "是否使用 SSL/TLS 加密连接"
+            },
+            "polarbear.email.smtp.tls.rejectUnauthorized": {
+                "type": "boolean",
+                "default": false,
+                "description": "是否拒绝未授权证书"
+            },
+            "polarbear.email.smtp.tls.minVersion": {
+                "type": "string",
+                "default": "TLSv1.2",
+                "description": "最小 TLS 版本"
+            },
+            "polarbear.email.auth.type": {
+                "type": "string",
+                "default": "login",
+                "enum": ["login", "oauth2"],
+                "description": "认证类型"
+            },
+            "polarbear.email.auth.user": {
+                "type": "string",
+                "default": "",
+                "description": "SMTP 用户名/邮箱地址"
+            },
+            "polarbear.email.sender.name": {
+                "type": "string",
+                "default": "",
+                "description": "发件人显示名称"
+            },
+            "polarbear.email.sender.address": {
+                "type": "string",
+                "default": "",
+                "description": "发件人邮箱地址"
+            },
+            "polarbear.email.connection.timeout": {
+                "type": "number",
+                "default": 30000,
+                "description": "连接超时时间（毫秒）"
+            },
+            "polarbear.email.retry.enabled": {
+                "type": "boolean",
+                "default": true,
+                "description": "启用自动重试"
+            },
+            "polarbear.email.retry.maxRetries": {
+                "type": "number",
+                "default": 3,
+                "description": "最大重试次数"
+            },
+            "polarbear.email.defaultTo": {
+                "type": "array",
+                "default": [],
+                "description": "默认收件人列表"
+            },
+            "polarbear.email.defaultCc": {
+                "type": "array",
+                "default": [],
+                "description": "默认抄送列表"
+            },
+            "polarbear.email.logging.enabled": {
+                "type": "boolean",
+                "default": true,
+                "description": "启用日志记录"
+            },
+            "polarbear.email.logging.level": {
+                "type": "string",
+                "default": "info",
+                "enum": ["debug", "info", "warn", "error"],
+                "description": "日志级别"
+            }
+        }
+    },
+    "keybindings": [
             {
                 "command": "polarbear.email.openEditor",
                 "key": "ctrl+shift+m",

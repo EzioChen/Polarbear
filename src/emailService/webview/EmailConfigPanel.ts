@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import * as path from 'path';
 import { EmailService } from '../EmailService';
 import { ConfigManager } from '../ConfigManager';
 import type { SMTPConfig } from '../types';
@@ -83,23 +82,11 @@ export class EmailConfigPanel {
     let configManager = emailService.getConfigManager();
 
     if (!configManager) {
-      // EmailService 未初始化，创建独立的 ConfigManager
-      const workspacePath = this.getWorkspacePath();
-      configManager = new ConfigManager(workspacePath, this.context.secrets);
+      // EmailService 未初始化，创建独立的 ConfigManager（使用 VS Code 全局配置）
+      configManager = new ConfigManager(this.context.secrets);
     }
 
     return configManager;
-  }
-
-  /**
-   * 获取工作区路径
-   */
-  private getWorkspacePath(): string {
-    if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
-      return vscode.workspace.workspaceFolders[0].uri.fsPath;
-    }
-    // 如果没有打开的工作区，使用扩展的存储路径
-    return this.context.extensionPath;
   }
 
   private async handleGetConfig(): Promise<void> {

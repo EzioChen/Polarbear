@@ -1146,17 +1146,24 @@ export function activate(context: vscode.ExtensionContext) {
 
             // ============ 邮件预编辑相关 ============
             case 'checkEmailConfig':
-              // 检查邮件配置
+              // 检查邮件配置（从 VS Code 全局配置检查）
               {
-                const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-                const configPath = workspaceFolder
-                  ? path.join(workspaceFolder.uri.fsPath, '.releasePlan', 'smtp-config.json')
-                  : '';
-                const configured = fs.existsSync(configPath);
-                panel.webview.postMessage({
-                  type: 'emailConfigCheckResult',
-                  payload: { configured }
-                });
+                try {
+                  const configManager = new ConfigManager(context.secrets);
+                  await configManager.loadConfig();
+                  const config = configManager.getConfig();
+                  // 检查关键配置项是否存在
+                  const configured = !!(config && config.smtp.host && config.auth.user);
+                  panel.webview.postMessage({
+                    type: 'emailConfigCheckResult',
+                    payload: { configured }
+                  });
+                } catch {
+                  panel.webview.postMessage({
+                    type: 'emailConfigCheckResult',
+                    payload: { configured: false }
+                  });
+                }
               }
               break;
 
@@ -1176,16 +1183,21 @@ export function activate(context: vscode.ExtensionContext) {
                   const releaseSubject = message.payload?.releaseSubject || '';
                   const zipPath = message.payload?.zipPath || '';
 
-                  // 读取 SMTP 配置获取收件人信息
-                  const configPath = path.join(workspaceFolder.uri.fsPath, '.releasePlan', 'smtp-config.json');
+                  // 从 VS Code 全局配置读取收件人信息
                   let defaultTo: string[] = [];
                   let defaultCc: string[] = [];
 
-                  if (fs.existsSync(configPath)) {
-                    const configContent = fs.readFileSync(configPath, 'utf-8');
-                    const config = JSON.parse(configContent);
-                    defaultTo = (config.defaultTo || []).map((c: any) => c.email).filter(Boolean);
-                    defaultCc = (config.defaultCc || []).map((c: any) => c.email).filter(Boolean);
+                  try {
+                    const configManager = new ConfigManager(context.secrets);
+                    await configManager.loadConfig();
+                    const config = configManager.getConfig();
+                    if (config) {
+                      defaultTo = (config.defaultTo || []).map((c: any) => c.email).filter(Boolean);
+                      defaultCc = (config.defaultCc || []).map((c: any) => c.email).filter(Boolean);
+                    }
+                  } catch (configError) {
+                    console.log('[Extension] 读取邮件配置失败:', configError);
+                    // 配置读取失败时继续使用空数组
                   }
 
                   // 读取发布说明文件内容
