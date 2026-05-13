@@ -57,7 +57,8 @@ export type WebviewMessageType =
   | 'moveInPublishList'
   | 'deleteItem'
   | 'deleteBatch'
-  | 'confirmClear';
+  | 'confirmClear'
+  | 'refreshFolders';
 
 export interface WebviewMessage {
   type: WebviewMessageType;

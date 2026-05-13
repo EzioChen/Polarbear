@@ -11,8 +11,8 @@ export default defineConfig({
     modulePreload: false,
     // 禁用 sourcemap
     sourcemap: false,
-    // 确保 CSS 被正确提取
-    cssCodeSplit: false,
+    // 启用 CSS 代码分割，确保 scoped CSS 被正确提取
+    cssCodeSplit: true,
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'index.html')

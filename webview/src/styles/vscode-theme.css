@@ -53,3 +53,5 @@ body {
 .codicon-trash::before { content: '🗑️'; }
 .codicon-package::before { content: '📦'; }
 .codicon-inbox::before { content: '📥'; }
+.codicon-refresh::before { content: '🔄'; }
+.codicon-loading::before { content: '⏳'; }

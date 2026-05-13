@@ -5,6 +5,14 @@
       <span class="panel-title">发布清单</span>
       <span class="panel-count" v-if="fileCount > 0">({{ fileCount }})</span>
       <button
+        class="refresh-btn"
+        @click="handleRefresh"
+        title="刷新文件夹内容"
+        :disabled="isRefreshing"
+      >
+        <span class="codicon" :class="isRefreshing ? 'codicon-loading codicon-modifier-spin' : 'codicon-refresh'"></span>
+      </button>
+      <button
         v-if="files.length > 0"
         class="clear-btn"
         @click="$emit('clearAll')"
@@ -82,6 +90,7 @@ const emit = defineEmits<{
   reorder: [files: FileNode[]];
   deleteItem: [itemId: string];
   deleteBatch: [itemIds: string[]];
+  refresh: [];
 }>();
 
 const isRootDropTarget = ref(false);
@@ -91,6 +100,7 @@ const successMessage = ref('');
 const successIcon = ref('codicon-check');
 const showDragHint = ref(false);
 const dragTargetPath = ref('');
+const isRefreshing = ref(false);
 
 // 计算文件总数
 const fileCount = computed(() => {
@@ -240,6 +250,19 @@ const handleDeleteBatch = (itemIds: string[]) => {
   emit('deleteBatch', itemIds);
   showSuccess(`已删除 ${itemIds.length} 个文件/文件夹`);
 };
+
+// 处理刷新
+const handleRefresh = async () => {
+  if (isRefreshing.value) return;
+
+  isRefreshing.value = true;
+  emit('refresh');
+
+  // 1.5秒后重置刷新状态（等待后端处理完成）
+  setTimeout(() => {
+    isRefreshing.value = false;
+  }, 1500);
+};
 </script>
 
 <style scoped>
@@ -270,6 +293,44 @@ const handleDeleteBatch = (itemIds: string[]) => {
   font-size: 11px;
   opacity: 0.7;
   font-weight: normal;
+}
+
+.refresh-btn {
+  background: none;
+  border: none;
+  color: var(--vscode-foreground);
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  opacity: 0.8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  min-height: 24px;
+}
+
+.refresh-btn:hover:not(:disabled) {
+  background: var(--vscode-list-hoverBackground);
+  opacity: 1;
+}
+
+.refresh-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.refresh-btn .codicon {
+  font-size: 14px;
+}
+
+/* Codicon 图标 */
+.codicon-refresh::before {
+  content: '🔄';
+}
+
+.codicon-loading::before {
+  content: '⏳';
 }
 
 .clear-btn {

@@ -22,6 +22,7 @@
         @reorder="handleReorder"
         @delete-item="handleDeleteItem"
         @delete-batch="handleDeleteBatch"
+        @refresh="handleRefresh"
       />
     </div>
 
@@ -195,6 +196,10 @@ const handleDeleteBatch = (itemIds: string[]) => {
 
 const handleSelectFiles = () => {
   postMessage({ type: 'selectFiles' });
+};
+
+const handleRefresh = () => {
+  postMessage({ type: 'refreshFolders' });
 };
 
 const handleAddFolder = () => {

@@ -75,6 +75,7 @@ export type WebviewMessageType =
   | 'deleteItem'
   | 'deleteBatch'
   | 'confirmClear'
+  | 'refreshFolders'
   // 发布时间轴相关
   | 'getPublishTimelineStatus'
   | 'checkPackPrerequisites'

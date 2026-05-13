@@ -213,6 +213,16 @@ export function activate(context: vscode.ExtensionContext) {
               break;
 
             case 'getPublishConfig':
+              // 先刷新文件夹内容，自动检测新增/删除的文件
+              if (publishFlowManager) {
+                const refreshResult = await publishFlowManager.refreshFolders();
+                if (refreshResult.added > 0 || refreshResult.removed > 0) {
+                  await publishFlowManager.save();
+                  vscode.window.showInformationMessage(
+                    `发布清单已刷新: 新增 ${refreshResult.added} 个, 移除 ${refreshResult.removed} 个文件/文件夹`
+                  );
+                }
+              }
               panel.webview.postMessage({
                 type: 'configUpdated',
                 payload: publishFlowManager?.getConfig()
@@ -421,6 +431,24 @@ export function activate(context: vscode.ExtensionContext) {
                 panel.webview.postMessage({
                   type: 'configUpdated',
                   payload: publishFlowManager?.getConfig()
+                });
+              }
+              break;
+
+            case 'refreshFolders':
+              if (publishFlowManager) {
+                const refreshResult = await publishFlowManager.refreshFolders();
+                await publishFlowManager.save();
+                if (refreshResult.added > 0 || refreshResult.removed > 0) {
+                  vscode.window.showInformationMessage(
+                    `发布清单已刷新: 新增 ${refreshResult.added} 个, 移除 ${refreshResult.removed} 个文件/文件夹`
+                  );
+                } else {
+                  vscode.window.showInformationMessage('发布清单已是最新状态');
+                }
+                panel.webview.postMessage({
+                  type: 'configUpdated',
+                  payload: publishFlowManager.getConfig()
                 });
               }
               break;
@@ -1447,7 +1475,6 @@ function getWebviewContent(webview: vscode.Webview, extensionUri: vscode.Uri): s
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}'; style-src ${webview.cspSource} 'unsafe-inline'; img-src ${webview.cspSource} data:; font-src ${webview.cspSource};">
       <title>配置发布流程</title>
-      <link rel="stylesheet" href="${styleUri}">
     </head>
     <body>
       <div id="app" data-page="publish-flow"></div>
@@ -1475,9 +1502,6 @@ function getReleaseNotesWebviewContent(webview: vscode.Webview, extensionUri: vs
   const scriptUri = webview.asWebviewUri(
     vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'assets', 'main.js')
   );
-  const styleUri = webview.asWebviewUri(
-    vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'assets', 'style.css')
-  );
 
   const nonce = getNonce();
 
@@ -1488,7 +1512,6 @@ function getReleaseNotesWebviewContent(webview: vscode.Webview, extensionUri: vs
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}'; style-src ${webview.cspSource} 'unsafe-inline'; img-src ${webview.cspSource} data:; font-src ${webview.cspSource};">
       <title>发布说明</title>
-      <link rel="stylesheet" href="${styleUri}">
     </head>
     <body>
       <div id="app" data-page="release-notes"></div>
@@ -1504,9 +1527,6 @@ function getPublishTimelineWebviewContent(webview: vscode.Webview, extensionUri:
   const scriptUri = webview.asWebviewUri(
     vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'assets', 'main.js')
   );
-  const styleUri = webview.asWebviewUri(
-    vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'assets', 'style.css')
-  );
 
   const nonce = getNonce();
 
@@ -1517,7 +1537,6 @@ function getPublishTimelineWebviewContent(webview: vscode.Webview, extensionUri:
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}'; style-src ${webview.cspSource} 'unsafe-inline'; img-src ${webview.cspSource} data:; font-src ${webview.cspSource};">
       <title>发布流程</title>
-      <link rel="stylesheet" href="${styleUri}">
     </head>
     <body>
       <div id="app" data-page="publish-timeline"></div>

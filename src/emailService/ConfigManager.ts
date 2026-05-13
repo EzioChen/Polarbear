@@ -47,13 +47,10 @@ export class ConfigManager {
   async loadConfig(configPath?: string): Promise<SMTPConfig> {
     const resolvedPath = this.resolveConfigPath(configPath);
 
-    // 检查文件是否存在
+    // 检查文件是否存在，如果不存在则创建默认配置
     if (!fs.existsSync(resolvedPath)) {
-      throw this.createError(
-        EmailErrorCode.CONFIG_NOT_FOUND,
-        formatErrorMessage(ERROR_MESSAGES.CONFIG_NOT_FOUND, { path: resolvedPath }),
-        { details: { path: resolvedPath } }
-      );
+      console.log(`[ConfigManager] 配置文件不存在，创建默认配置: ${resolvedPath}`);
+      await this.createDefaultConfigFile(resolvedPath);
     }
 
     // 读取文件
@@ -337,6 +334,39 @@ export class ConfigManager {
       }
     }
     return result;
+  }
+
+  /**
+   * 创建默认配置文件
+   */
+  private async createDefaultConfigFile(configPath: string): Promise<void> {
+    try {
+      // 确保目录存在
+      const dir = path.dirname(configPath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+
+      // 创建默认配置（不包含密码）
+      const defaultConfig = {
+        ...DEFAULT_SMTP_CONFIG,
+        auth: {
+          ...DEFAULT_SMTP_CONFIG.auth,
+          pass: undefined,
+        },
+      };
+
+      // 写入文件
+      fs.writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2), 'utf-8');
+      console.log(`[ConfigManager] 默认配置文件已创建: ${configPath}`);
+    } catch (error) {
+      console.error(`[ConfigManager] 创建默认配置文件失败: ${(error as Error).message}`);
+      throw this.createError(
+        EmailErrorCode.UNKNOWN_ERROR,
+        formatErrorMessage(ERROR_MESSAGES.UNKNOWN_ERROR, { message: `创建默认配置失败: ${(error as Error).message}` }),
+        { originalError: error as Error }
+      );
+    }
   }
 
   /**

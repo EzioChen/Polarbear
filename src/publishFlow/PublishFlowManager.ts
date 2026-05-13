@@ -302,4 +302,193 @@ export class PublishFlowManager {
   getWorkspacePath(): string {
     return this.workspacePath;
   }
+
+  /**
+   * 刷新文件夹内容 - 扫描目录下新增的文件和子文件夹
+   * 根据记录的 sourcePath 重新扫描实际文件系统，更新到配置中
+   */
+  async refreshFolders(): Promise<{ added: number; removed: number }> {
+    let addedCount = 0;
+    let removedCount = 0;
+
+    const refreshNodeRecursive = async (node: FileNode): Promise<boolean> => {
+      // 如果是文件，检查是否存在
+      if (node.type === 'file') {
+        if (node.sourcePath && !fs.existsSync(node.sourcePath)) {
+          return false; // 文件不存在，标记为需要移除
+        }
+        return true; // 文件存在，保留
+      }
+
+      // 如果是文件夹且有 sourcePath，重新扫描
+      if (node.type === 'folder' && node.sourcePath && fs.existsSync(node.sourcePath)) {
+        const existingChildren = node.children || [];
+        const newChildren: FileNode[] = [];
+
+        // 读取实际目录内容
+        try {
+          const entries = await fs.promises.readdir(node.sourcePath, { withFileTypes: true });
+
+          // 创建现有子节点的映射（按名称）
+          const existingMap = new Map<string, FileNode>();
+          for (const child of existingChildren) {
+            existingMap.set(child.name, child);
+          }
+
+          for (const entry of entries) {
+            // 忽略隐藏文件
+            if (entry.name.startsWith('.')) {
+              continue;
+            }
+
+            const fullPath = path.join(node.sourcePath!, entry.name);
+            const childPath = path.join(node.path, entry.name);
+
+            if (entry.isDirectory()) {
+              const existingFolder = existingMap.get(entry.name);
+              if (existingFolder && existingFolder.type === 'folder') {
+                // 文件夹已存在，递归刷新
+                const keepFolder = await refreshNodeRecursive(existingFolder);
+                if (keepFolder) {
+                  newChildren.push(existingFolder);
+                } else {
+                  removedCount++;
+                }
+              } else {
+                // 新增文件夹
+                const newFolder: FileNode = {
+                  id: uuidv4(),
+                  type: 'folder',
+                  name: entry.name,
+                  path: childPath,
+                  sourcePath: fullPath,
+                  children: []
+                };
+                // 递归扫描新文件夹的内容
+                await scanNewFolderRecursive(newFolder);
+                newChildren.push(newFolder);
+                addedCount++;
+              }
+            } else {
+              const existingFile = existingMap.get(entry.name);
+              if (existingFile && existingFile.type === 'file') {
+                // 文件已存在，保留
+                newChildren.push(existingFile);
+              } else {
+                // 新增文件
+                const stats = await fs.promises.stat(fullPath);
+                const newFile: FileNode = {
+                  id: uuidv4(),
+                  type: 'file',
+                  name: entry.name,
+                  path: childPath,
+                  sourcePath: fullPath,
+                  size: stats.size,
+                  lastModified: stats.mtime.toISOString()
+                };
+                newChildren.push(newFile);
+                addedCount++;
+              }
+            }
+          }
+
+          // 检查被删除的文件/文件夹
+          const newNames = new Set(newChildren.map(c => c.name));
+          for (const existingChild of existingChildren) {
+            if (!newNames.has(existingChild.name)) {
+              removedCount++;
+            }
+          }
+
+          node.children = newChildren;
+          return true;
+        } catch (error) {
+          console.error(`刷新文件夹失败: ${node.sourcePath}`, error);
+          return true; // 保留原有内容
+        }
+      } else if (node.type === 'folder' && node.children) {
+        // 没有 sourcePath 的文件夹（手动创建的），递归刷新子节点
+        const refreshedChildren: FileNode[] = [];
+        for (const child of node.children) {
+          const keepChild = await refreshNodeRecursive(child);
+          if (keepChild) {
+            refreshedChildren.push(child);
+          } else {
+            removedCount++;
+          }
+        }
+        node.children = refreshedChildren;
+        return true;
+      }
+
+      return true;
+    };
+
+    // 扫描新文件夹的递归函数
+    const scanNewFolderRecursive = async (folderNode: FileNode): Promise<void> => {
+      if (!folderNode.sourcePath || !fs.existsSync(folderNode.sourcePath)) {
+        return;
+      }
+
+      try {
+        const entries = await fs.promises.readdir(folderNode.sourcePath, { withFileTypes: true });
+        folderNode.children = [];
+
+        for (const entry of entries) {
+          if (entry.name.startsWith('.')) {
+            continue;
+          }
+
+          const fullPath = path.join(folderNode.sourcePath!, entry.name);
+          const childPath = path.join(folderNode.path, entry.name);
+
+          if (entry.isDirectory()) {
+            const newFolder: FileNode = {
+              id: uuidv4(),
+              type: 'folder',
+              name: entry.name,
+              path: childPath,
+              sourcePath: fullPath,
+              children: []
+            };
+            await scanNewFolderRecursive(newFolder);
+            folderNode.children.push(newFolder);
+            addedCount++;
+          } else {
+            const stats = await fs.promises.stat(fullPath);
+            const newFile: FileNode = {
+              id: uuidv4(),
+              type: 'file',
+              name: entry.name,
+              path: childPath,
+              sourcePath: fullPath,
+              size: stats.size,
+              lastModified: stats.mtime.toISOString()
+            };
+            folderNode.children.push(newFile);
+            addedCount++;
+          }
+        }
+      } catch (error) {
+        console.error(`扫描新文件夹失败: ${folderNode.sourcePath}`, error);
+      }
+    };
+
+    // 刷新根级别的文件和文件夹
+    const refreshedFiles: FileNode[] = [];
+    for (const node of this.config.files) {
+      const keepNode = await refreshNodeRecursive(node);
+      if (keepNode) {
+        refreshedFiles.push(node);
+      } else {
+        removedCount++;
+      }
+    }
+    this.config.files = refreshedFiles;
+
+    // 更新元数据
+    this.updateMetadata();
+
+    return { added: addedCount, removed: removedCount };
+  }
 }

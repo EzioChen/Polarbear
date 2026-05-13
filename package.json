@@ -1,16 +1,16 @@
 {
-    "publisher": "polarbear",
+    "publisher": "eziochan",
     "name": "pubflow",
-    "displayName": "polarbear",
-    "description": "一个流程发布工具",
+    "displayName": "pubFlow",
+    "description": "适用于 JL 发布测试版本的打包发布流",
     "version": "0.0.1",
     "repository": {
         "type": "git",
         "url": "https://github.com/EzioChen/Polarbear.git"
     },
     "engines": {
-    "vscode": "^1.116.0"
-  },
+        "vscode": "^1.74.0"
+    },
     "categories": [
         "Other"
     ],
@@ -173,7 +173,7 @@
         "@types/mocha": "^10.0.10",
         "@types/node": "22.x",
         "@types/nodemailer": "^8.0.0",
-        "@types/vscode": "^1.116.0",
+        "@types/vscode": "^1.74.0",
         "@vscode/test-cli": "^0.0.12",
         "@vscode/test-electron": "^2.5.2",
         "copy-webpack-plugin": "^14.0.0",
