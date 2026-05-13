@@ -45,19 +45,34 @@ export class MailSender {
    * 创建 SMTP 传输器
    */
   async createTransporter(config: SMTPConfig): Promise<Transporter> {
+    // 添加平台信息日志
+    const platform = process.platform;
+    const nodeVersion = process.version;
+    this.log('DEBUG', `运行平台: ${platform}, Node.js 版本: ${nodeVersion}`);
+
     this.log('DEBUG', `创建 SMTP 传输器: ${config.smtp.host}:${config.smtp.port}`);
     this.log('DEBUG', `SMTP 配置: secure=${config.smtp.secure}, tls.rejectUnauthorized=${config.smtp.tls?.rejectUnauthorized}`);
     this.log('DEBUG', `认证配置: user=${config.auth.user}, type=${config.auth.type}`);
 
     try {
-      const transporter = nodemailer.createTransport({
+      // 构建 TLS 选项
+      const tlsOptions: Record<string, unknown> = {};
+      if (config.smtp.tls) {
+        tlsOptions.rejectUnauthorized = config.smtp.tls.rejectUnauthorized;
+        if (config.smtp.tls.minVersion) {
+          tlsOptions.minVersion = config.smtp.tls.minVersion;
+        }
+        // 注意：不同平台的 OpenSSL 版本对 ciphers 的支持不同
+        // Windows 上的 Node.js 可能不支持某些 cipher 配置
+        // 暂时不添加平台特定的 cipher 配置，保持与 macOS 一致
+        this.log('DEBUG', `平台 ${platform}，使用标准 TLS 配置`);
+      }
+      this.log('DEBUG', `TLS 配置: ${JSON.stringify(tlsOptions)}`);
+
+      const transportConfig: Record<string, unknown> = {
         host: config.smtp.host,
         port: config.smtp.port,
         secure: config.smtp.secure,
-        tls: config.smtp.tls ? {
-          rejectUnauthorized: config.smtp.tls.rejectUnauthorized,
-          minVersion: config.smtp.tls.minVersion,
-        } : undefined,
         auth: {
           user: config.auth.user,
           ...(config.auth.pass ? { pass: config.auth.pass } : {}),
@@ -67,7 +82,16 @@ export class MailSender {
         connectionTimeout: config.connection?.timeout,
         greetingTimeout: config.connection?.greetingTimeout,
         socketTimeout: config.connection?.socketTimeout,
-      } as TransportOptions);
+      };
+
+      // 只有当有 TLS 配置时才添加 tls 属性
+      if (Object.keys(tlsOptions).length > 0) {
+        transportConfig.tls = tlsOptions;
+      }
+
+      this.log('DEBUG', `完整传输配置: ${JSON.stringify({ host: transportConfig.host, port: transportConfig.port, secure: transportConfig.secure, tls: transportConfig.tls, auth: { user: (transportConfig.auth as { user: string }).user, type: (transportConfig.auth as { type?: string }).type } })}`);
+
+      const transporter = nodemailer.createTransport(transportConfig as TransportOptions);
 
       this.log('DEBUG', 'SMTP 传输器已创建，开始验证连接...');
 
